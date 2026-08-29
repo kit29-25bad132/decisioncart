@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import type { UserPreference, PriorityItem } from "@/types";
+import type { UserPreference, PriorityItem, Constraint } from "@/types";
 import { runDecision, buildDecisionMatrix } from "@/engine/decision-engine";
 import { getCategoryConfig } from "@/catalog/categories";
 import { getCatalog } from "@/catalog/demo-data";
 import { Header } from "./Header";
+import { AIQueryInput } from "./AIQueryInput";
 import { QueryInput } from "./QueryInput";
 import { PriorityControls } from "./PriorityControls";
 import { BestMatchCard } from "./BestMatchCard";
@@ -35,7 +36,9 @@ export function DecisionWorkspace() {
   const [priorities, setPriorities] = useState<PriorityItem[]>(
     buildDefaultPriorities("smartphone")
   );
+  const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [showManualControls, setShowManualControls] = useState(false);
 
   const categoryConfig = useMemo(() => getCategoryConfig(category)!, [category]);
 
@@ -44,8 +47,9 @@ export function DecisionWorkspace() {
       category,
       budget: { max: budget },
       priorities,
+      constraints,
     }),
-    [category, budget, priorities]
+    [category, budget, priorities, constraints]
   );
 
   const catalog = useMemo(() => getCatalog(category), [category]);
@@ -93,6 +97,44 @@ export function DecisionWorkspace() {
     return labels;
   }, [priorities]);
 
+  // Handle AI-parsed intent
+  const handleAIParsed = useCallback(
+    (intent: {
+      category: string;
+      budget?: { min?: number; max?: number };
+      priorities: PriorityItem[];
+      constraints: Constraint[];
+    }) => {
+      // Update category (triggers catalog + config reload)
+      setCategory(intent.category);
+
+      // Update budget
+      if (intent.budget?.max) {
+        setBudget(intent.budget.max);
+      }
+
+      // Update priorities — merge with defaults so all attributes have values
+      const defaultPri = buildDefaultPriorities(intent.category);
+      const aiPriMap = new Map(
+        intent.priorities.map((p) => [p.attributeKey, p.importance])
+      );
+      const merged = defaultPri.map((dp) => ({
+        ...dp,
+        importance: aiPriMap.get(dp.attributeKey) ?? dp.importance,
+      }));
+      setPriorities(merged);
+
+      // Update constraints
+      if (intent.constraints.length > 0) {
+        setConstraints(intent.constraints);
+      }
+
+      // Reset selection
+      setSelectedProductId(null);
+    },
+    []
+  );
+
   const handlePriorityChange = useCallback(
     (attributeKey: string, importance: number) => {
       setPriorities((prev) => {
@@ -113,7 +155,7 @@ export function DecisionWorkspace() {
       setCategory(newCategory);
       setPriorities(buildDefaultPriorities(newCategory));
       setSelectedProductId(null);
-      // Reset budget for new category
+      setConstraints([]);
       if (newCategory === "laptop") setBudget(60000);
       else setBudget(DEFAULT_BUDGET);
     },
@@ -125,38 +167,83 @@ export function DecisionWorkspace() {
       <Header categoryLabel={categoryConfig.label} />
 
       <main className="mx-auto max-w-6xl px-4 sm:px-6 py-8">
-        {/* Top Controls */}
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px] mb-8">
-          <div className="space-y-6">
-            <QueryInput
-              preference={preference}
-              categoryConfig={categoryConfig}
-              onBudgetChange={setBudget}
-              onCategoryChange={handleCategoryChange}
-              categories={INITIAL_CATEGORIES}
-            />
-            <PriorityControls
-              attributes={categoryConfig.attributes}
-              priorities={priorities}
-              onPriorityChange={handlePriorityChange}
-            />
-          </div>
-
-          <div className="space-y-6">
-            {selectedScored && (
-              <BestMatchCard
-                scoredProduct={selectedScored}
-                attributes={categoryConfig.attributes}
-              />
-            )}
-          </div>
+        {/* AI Query Input */}
+        <div className="mb-6">
+          <AIQueryInput
+            currentCategory={category}
+            currentPriorities={priorities}
+            currentBudget={preference.budget}
+            onParsed={handleAIParsed}
+          />
         </div>
+
+        {/* Toggle Manual Controls */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowManualControls(!showManualControls)}
+            className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors flex items-center gap-1.5"
+          >
+            <svg
+              className={`w-3.5 h-3.5 transition-transform ${showManualControls ? "rotate-90" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+            {showManualControls ? "Hide" : "Show"} manual controls
+          </button>
+        </div>
+
+        {/* Manual Controls (Phase 3 — collapsible) */}
+        {showManualControls && (
+          <div className="grid gap-6 lg:grid-cols-[1fr_320px] mb-8">
+            <div className="space-y-6">
+              <QueryInput
+                preference={preference}
+                categoryConfig={categoryConfig}
+                onBudgetChange={setBudget}
+                onCategoryChange={handleCategoryChange}
+                categories={INITIAL_CATEGORIES}
+              />
+              <PriorityControls
+                attributes={categoryConfig.attributes}
+                priorities={priorities}
+                onPriorityChange={handlePriorityChange}
+              />
+            </div>
+
+            <div className="space-y-6">
+              {selectedScored && (
+                <BestMatchCard
+                  scoredProduct={selectedScored}
+                  attributes={categoryConfig.attributes}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Best Match (always visible) */}
+        {!showManualControls && selectedScored && (
+          <div className="mb-8 max-w-md">
+            <BestMatchCard
+              scoredProduct={selectedScored}
+              attributes={categoryConfig.attributes}
+            />
+          </div>
+        )}
 
         {/* Empty State */}
         {result.scoredProducts.length === 0 && (
           <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center shadow-sm">
             <p className="text-zinc-400 text-sm">
-              No products match your criteria. Try adjusting your budget or constraints.
+              No products match your criteria. Try adjusting your budget or priorities.
             </p>
           </div>
         )}
