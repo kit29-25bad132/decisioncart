@@ -1,0 +1,457 @@
+// ============================================================
+// DecisionCart — Deterministic Decision Engine
+// Pure TypeScript. No AI inference. Fully reproducible.
+// ============================================================
+
+import type {
+  AttributeConfig,
+  CategoryConfig,
+  Constraint,
+  DecisionMatrix,
+  DecisionResult,
+  MatrixCell,
+  MatrixRow,
+  PriorityItem,
+  Product,
+  ScoreContribution,
+  ScoredProduct,
+  TradeOff,
+  UserPreference,
+} from "@/types";
+
+// --- Weight Calculation ---
+
+/**
+ * Convert priority items into normalized weights summing to 1.0.
+ * Higher-importance items receive exponentially more weight.
+ * Attributes not in the priority list receive weight 0.
+ */
+export function calculateWeights(
+  priorities: PriorityItem[],
+  allAttributeKeys: string[]
+): Record<string, number> {
+  const weights: Record<string, number> = {};
+
+  // Initialize all attributes to 0
+  for (const key of allAttributeKeys) {
+    weights[key] = 0;
+  }
+
+  if (priorities.length === 0) return weights;
+
+  // Sort by importance descending
+  const sorted = [...priorities].sort((a, b) => b.importance - a.importance);
+
+  // Exponential decay: highest priority gets base^0, next gets base^1, etc.
+  const base = 0.5;
+  let rawSum = 0;
+  const rawWeights: number[] = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const raw = Math.pow(base, i) * sorted[i].importance;
+    rawWeights.push(raw);
+    rawSum += raw;
+  }
+
+  // Normalize to sum to 1.0
+  for (let i = 0; i < sorted.length; i++) {
+    weights[sorted[i].attributeKey] = rawSum > 0 ? rawWeights[i] / rawSum : 0;
+  }
+
+  return weights;
+}
+
+// --- Normalization ---
+
+/**
+ * Normalize a product set's attribute values to 0–1 scale.
+ * Returns normalized values per product per attribute.
+ */
+export function normalizeProducts(
+  products: Product[],
+  attributes: AttributeConfig[]
+): Map<string, Record<string, number | null>> {
+  const normalized = new Map<string, Record<string, number | null>>();
+
+  for (const attr of attributes) {
+    if (attr.type === "binary") {
+      // Binary: true=1, false=0, null=0
+      for (const product of products) {
+        const val = product.attributes[attr.key];
+        if (!normalized.has(product.id)) normalized.set(product.id, {});
+        const map = normalized.get(product.id)!;
+        map[attr.key] = val === null || val === undefined ? null : val ? 1 : 0;
+      }
+      continue;
+    }
+
+    // Numeric: collect all present values for min/max
+    const values: number[] = [];
+    for (const product of products) {
+      const val = product.attributes[attr.key];
+      if (typeof val === "number") values.push(val);
+    }
+
+    if (values.length === 0) {
+      // No data for this attribute at all
+      for (const product of products) {
+        if (!normalized.has(product.id)) normalized.set(product.id, {});
+        normalized.get(product.id)![attr.key] = null;
+      }
+      continue;
+    }
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min;
+
+    for (const product of products) {
+      const val = product.attributes[attr.key];
+      if (!normalized.has(product.id)) normalized.set(product.id, {});
+      const map = normalized.get(product.id)!;
+
+      if (typeof val !== "number") {
+        map[attr.key] = null; // missing data
+        continue;
+      }
+
+      if (range === 0) {
+        // All values identical — full score
+        map[attr.key] = 1;
+        continue;
+      }
+
+      map[attr.key] =
+        attr.comparisonDirection === "higher_is_better"
+          ? (val - min) / range
+          : (max - val) / range;
+    }
+  }
+
+  return normalized;
+}
+
+// --- Scoring ---
+
+/**
+ * Calculate a deterministic score for a single product.
+ * Missing attributes are redistributed proportionally.
+ */
+export function scoreProduct(
+  product: Product,
+  weights: Record<string, number>,
+  normalized: Record<string, number | null>,
+  attributes: AttributeConfig[]
+): {
+  totalScore: number;
+  contributions: ScoreContribution[];
+  missingAttributes: string[];
+} {
+  const contributions: ScoreContribution[] = [];
+  const missingAttributes: string[] = [];
+
+  // Separate available and missing
+  let availableWeightSum = 0;
+  let totalContribution = 0;
+
+  // First pass: identify missing and available
+  const availableAttrs: AttributeConfig[] = [];
+  for (const attr of attributes) {
+    const normVal = normalized[attr.key];
+    if (normVal === null || normVal === undefined) {
+      missingAttributes.push(attr.key);
+    } else {
+      availableAttrs.push(attr);
+      availableWeightSum += weights[attr.key] ?? 0;
+    }
+  }
+
+  // Second pass: score with redistributed weights
+  for (const attr of attributes) {
+    const rawVal = product.attributes[attr.key];
+    const normVal = normalized[attr.key];
+    const originalWeight = weights[attr.key] ?? 0;
+
+    const available = normVal !== null && normVal !== undefined;
+    const effectiveWeight =
+      available && availableWeightSum > 0
+        ? originalWeight / availableWeightSum
+        : 0;
+    const contribution = available ? normVal * effectiveWeight : 0;
+    totalContribution += contribution;
+
+    contributions.push({
+      attributeKey: attr.key,
+      label: attr.label,
+      rawValue: rawVal,
+      normalizedValue: normVal ?? 0,
+      weight: originalWeight,
+      contribution,
+      available,
+    });
+  }
+
+  // Normalize total to 0–100
+  const totalScore = Math.round(totalContribution * 10000) / 100;
+
+  return { totalScore, contributions, missingAttributes };
+}
+
+// --- Strengths & Weaknesses ---
+
+function identifyStrengthsAndWeaknesses(
+  contributions: ScoreContribution[]
+): { strengths: string[]; weaknesses: string[] } {
+  const available = contributions.filter(
+    (c) => c.available && c.weight > 0
+  );
+
+  if (available.length === 0) return { strengths: [], weaknesses: [] };
+
+  // Strengths: highest contribution-to-weight ratio
+  const sorted = [...available].sort(
+    (a, b) =>
+      b.contribution / (b.weight || 1) - a.contribution / (a.weight || 1)
+  );
+
+  const strengths = sorted.slice(0, 2).map((c) => c.label);
+  const weaknesses = sorted
+    .slice(-2)
+    .reverse()
+    .map((c) => c.label);
+
+  return { strengths, weaknesses };
+}
+
+// --- Data Confidence ---
+
+function calculateDataConfidence(
+  contributions: ScoreContribution[],
+  allAttributes: AttributeConfig[]
+): "high" | "medium" | "low" | "unknown" {
+  const total = allAttributes.length;
+  if (total === 0) return "unknown";
+
+  const availableCount = contributions.filter((c) => c.available).length;
+  const ratio = availableCount / total;
+
+  if (ratio >= 0.8) return "high";
+  if (ratio >= 0.5) return "medium";
+  if (ratio > 0) return "low";
+  return "unknown";
+}
+
+// --- Trade-Off Detection ---
+
+function detectTradeOffs(
+  scoredProducts: ScoredProduct[],
+  attributes: AttributeConfig[]
+): TradeOff[] {
+  const tradeOffs: TradeOff[] = [];
+
+  for (const attr of attributes) {
+    let bestProduct: ScoredProduct | null = null;
+    let bestNormalized = -1;
+
+    for (const sp of scoredProducts) {
+      const contrib = sp.contributions.find(
+        (c) => c.attributeKey === attr.key
+      );
+      if (contrib && contrib.available && contrib.normalizedValue > bestNormalized) {
+        bestNormalized = contrib.normalizedValue;
+        bestProduct = sp;
+      }
+    }
+
+    if (bestProduct) {
+      tradeOffs.push({
+        criterionKey: attr.key,
+        criterionLabel: attr.label,
+        winnerProductId: bestProduct.product.id,
+        winnerProductName: bestProduct.product.name,
+        score: Math.round(bestNormalized * 100),
+      });
+    }
+  }
+
+  return tradeOffs;
+}
+
+// --- Hard Constraints ---
+
+function passesConstraints(
+  product: Product,
+  constraints?: Constraint[]
+): boolean {
+  if (!constraints || constraints.length === 0) return true;
+
+  for (const constraint of constraints) {
+    switch (constraint.type) {
+      case "max_price":
+        if (product.price > (constraint.value as number)) return false;
+        break;
+      case "min_price":
+        if (product.price < (constraint.value as number)) return false;
+        break;
+      case "required_attribute": {
+        const val = product.attributes[constraint.attributeKey!];
+        if (val === null || val === undefined || val === false) return false;
+        break;
+      }
+      case "exclude_attribute": {
+        const val = product.attributes[constraint.attributeKey!];
+        if (val === constraint.value) return false;
+        break;
+      }
+    }
+  }
+
+  return true;
+}
+
+// --- Build Decision Matrix ---
+
+export function buildDecisionMatrix(
+  products: Product[],
+  attributes: AttributeConfig[],
+  normalized: Map<string, Record<string, number | null>>
+): DecisionMatrix {
+  const rows: MatrixRow[] = products.map((product) => {
+    const norm = normalized.get(product.id) ?? {};
+    const cells: Record<string, MatrixCell> = {};
+
+    for (const attr of attributes) {
+      cells[attr.key] = {
+        value: product.attributes[attr.key] ?? null,
+        normalized: norm[attr.key] ?? null,
+        available: norm[attr.key] !== null && norm[attr.key] !== undefined,
+      };
+    }
+
+    return {
+      product,
+      cells,
+      score: 0, // filled in after scoring
+    };
+  });
+
+  return { attributes, rows };
+}
+
+// --- Main Decision Function ---
+
+export function runDecision(
+  products: Product[],
+  preference: UserPreference,
+  categoryConfig: CategoryConfig
+): DecisionResult {
+  const { attributes } = categoryConfig;
+
+  // 1. Filter by hard constraints
+  const filtered = products.filter((p) =>
+    passesConstraints(p, preference.constraints)
+  );
+
+  if (filtered.length === 0) {
+    return {
+      scoredProducts: [],
+      tradeOffs: [],
+      querySummary: buildQuerySummary(preference, categoryConfig),
+      categoryLabel: categoryConfig.label,
+    };
+  }
+
+  // 2. Calculate weights from priorities
+  const weights = calculateWeights(
+    preference.priorities,
+    attributes.map((a) => a.key)
+  );
+
+  // 3. Normalize all attributes
+  const normalized = normalizeProducts(filtered, attributes);
+
+  // 4. Score each product
+  const scored: ScoredProduct[] = filtered.map((product) => {
+    const norm = normalized.get(product.id) ?? {};
+    const { totalScore, contributions, missingAttributes } = scoreProduct(
+      product,
+      weights,
+      norm,
+      attributes
+    );
+    const { strengths, weaknesses } = identifyStrengthsAndWeaknesses(
+      contributions
+    );
+    const dataConfidence = calculateDataConfidence(contributions, attributes);
+
+    return {
+      product,
+      totalScore,
+      rank: 0, // set after sorting
+      contributions,
+      missingAttributes,
+      strengths,
+      weaknesses,
+      dataConfidence,
+    };
+  });
+
+  // 5. Rank by score descending, break ties by price (lower = better)
+  scored.sort((a, b) => {
+    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+    return a.product.price - b.product.price;
+  });
+
+  scored.forEach((sp, i) => {
+    sp.rank = i + 1;
+  });
+
+  // 6. Detect trade-offs
+  const tradeOffs = detectTradeOffs(scored, attributes);
+
+  // 7. Build summary
+  const querySummary = buildQuerySummary(preference, categoryConfig);
+
+  return {
+    scoredProducts: scored,
+    tradeOffs,
+    querySummary,
+    categoryLabel: categoryConfig.label,
+  };
+}
+
+// --- Query Summary Builder ---
+
+function buildQuerySummary(
+  preference: UserPreference,
+  categoryConfig: CategoryConfig
+): string {
+  const parts: string[] = [];
+
+  parts.push(`Category: ${categoryConfig.label}`);
+
+  if (preference.budget) {
+    const { min, max } = preference.budget;
+    if (min && max) parts.push(`Budget: ₹${min.toLocaleString()} – ₹${max.toLocaleString()}`);
+    else if (max) parts.push(`Budget: Under ₹${max.toLocaleString()}`);
+    else if (min) parts.push(`Budget: Above ₹${min.toLocaleString()}`);
+  }
+
+  if (preference.priorities.length > 0) {
+    const sorted = [...preference.priorities].sort(
+      (a, b) => b.importance - a.importance
+    );
+    const labels = sorted.map((p) => {
+      const attr = categoryConfig.attributes.find(
+        (a) => a.key === p.attributeKey
+      );
+      const label = attr?.label ?? p.attributeKey;
+      const impLabel =
+        p.importance === 3 ? "High" : p.importance === 2 ? "Medium" : "Low";
+      return `${label} (${impLabel})`;
+    });
+    parts.push(`Priorities: ${labels.join(", ")}`);
+  }
+
+  return parts.join(" · ");
+}

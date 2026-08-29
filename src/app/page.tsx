@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const STEPS = [
   {
     number: "01",
@@ -63,9 +65,15 @@ export default function Home() {
             AI with deterministic scoring — no guesswork, no hype.
           </p>
           <div className="flex gap-3">
-            <span className="inline-flex items-center gap-2 rounded-full bg-zinc-900 text-white px-5 py-2.5 text-sm font-medium">
-              Coming Soon
-            </span>
+            <Link
+              href="/workspace"
+              className="inline-flex items-center gap-2 rounded-full bg-zinc-900 text-white px-6 py-2.5 text-sm font-medium hover:bg-zinc-800 transition-colors shadow-sm"
+            >
+              Start Deciding
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+            </Link>
             <a
               href="https://github.com/kit29-25bad132/decisioncart"
               target="_blank"
