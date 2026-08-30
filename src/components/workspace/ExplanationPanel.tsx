@@ -6,14 +6,20 @@ interface ExplanationPanelProps {
   scoredProduct: ScoredProduct;
   attributes: AttributeConfig[];
   userPriorityLabels: Record<string, string>;
+  /** Whether this product is already purchase-selected. */
+  isPurchaseSelected?: boolean;
+  /** Handler for explicit purchase selection. */
+  onSelectForPurchase?: (productId: string) => void;
 }
 
 export function ExplanationPanel({
   scoredProduct,
   attributes,
   userPriorityLabels,
+  isPurchaseSelected,
+  onSelectForPurchase,
 }: ExplanationPanelProps) {
-  const { contributions } = scoredProduct;
+  const { contributions, product } = scoredProduct;
 
   const sorted = [...contributions]
     .filter((c) => c.weight > 0)
@@ -78,6 +84,37 @@ export function ExplanationPanel({
           );
         })}
       </div>
+
+      {/* Select This Product Action */}
+      {onSelectForPurchase && (
+        <div className="mt-6 pt-4 border-t border-zinc-100">
+          {isPurchaseSelected ? (
+            <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 px-4 py-2.5 rounded-xl">
+              <svg
+                className="w-4 h-4 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              Selected for purchase
+            </div>
+          ) : (
+            <button
+              onClick={() => onSelectForPurchase(product.id)}
+              className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-all shadow-sm"
+            >
+              Select This Product
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

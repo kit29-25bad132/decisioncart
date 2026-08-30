@@ -3,6 +3,8 @@
 import { useState, useMemo, useCallback } from "react";
 import type { UserPreference, PriorityItem, Constraint } from "@/types";
 import { runDecision, buildDecisionMatrix } from "@/engine/decision-engine";
+import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
+import { validatePurchaseSelection } from "@/engine/purchase-selection";
 import { getCategoryConfig } from "@/catalog/categories";
 import { getCatalog } from "@/catalog/demo-data";
 import { Header } from "./Header";
@@ -14,6 +16,8 @@ import { RankedProducts } from "./RankedProducts";
 import { DecisionMatrix } from "./DecisionMatrix";
 import { ExplanationPanel } from "./ExplanationPanel";
 import { TradeOffSection } from "./TradeOffSection";
+import { DecisionSummary } from "./DecisionSummary";
+import { CheckoutReadiness } from "./CheckoutReadiness";
 
 const DEFAULT_BUDGET = 35000;
 const INITIAL_CATEGORIES = [
@@ -39,6 +43,9 @@ export function DecisionWorkspace() {
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [showManualControls, setShowManualControls] = useState(false);
+
+  // --- Phase 5A: Purchase Selection State ---
+  const [purchaseProductId, setPurchaseProductId] = useState<string | null>(null);
 
   const categoryConfig = useMemo(() => getCategoryConfig(category)!, [category]);
 
@@ -76,7 +83,17 @@ export function DecisionWorkspace() {
     [result.scoredProducts, categoryConfig]
   );
 
-  // Auto-select top product
+  // --- Purchase Selection Validation ---
+  // INVARIANT: purchaseProductId must always be null or in current scoredProducts.
+  const validatedPurchaseId = useMemo(
+    () => validatePurchaseSelection(purchaseProductId, result.scoredProducts),
+    [purchaseProductId, result.scoredProducts]
+  );
+
+  // Clear checkout request when purchase selection becomes invalid
+  // CheckoutReadiness manages its own internal checkout state
+
+  // Auto-select top product for inspection
   const effectiveSelectedId =
     selectedProductId ??
     (result.scoredProducts.length > 0
@@ -86,6 +103,43 @@ export function DecisionWorkspace() {
   const selectedScored = result.scoredProducts.find(
     (sp) => sp.product.id === effectiveSelectedId
   );
+
+  // Purchase selection scored product
+  const purchaseScored = useMemo(
+    () =>
+      validatedPurchaseId
+        ? result.scoredProducts.find((sp) => sp.product.id === validatedPurchaseId) ?? null
+        : null,
+    [validatedPurchaseId, result.scoredProducts]
+  );
+
+  // --- Decision Confidence for Purchase Selection ---
+  const purchaseConfidence = useMemo(() => {
+    if (!purchaseScored) return null;
+    return calculateDecisionConfidence({
+      selectedProduct: purchaseScored,
+      allScoredProducts: result.scoredProducts,
+      attributes: categoryConfig.attributes,
+      priorities,
+      budget: preference.budget,
+    });
+  }, [purchaseScored, result.scoredProducts, categoryConfig.attributes, priorities, preference.budget]);
+
+  const purchaseWhyMatches = useMemo(() => {
+    if (!purchaseScored || !purchaseConfidence) return [];
+    return buildWhyMatches({
+      selectedProduct: purchaseScored,
+      allScoredProducts: result.scoredProducts,
+      attributes: categoryConfig.attributes,
+      priorities,
+      budget: preference.budget,
+    });
+  }, [purchaseScored, purchaseConfidence, result.scoredProducts, categoryConfig.attributes, priorities, preference.budget]);
+
+  const purchaseTradeOffNotes = useMemo(() => {
+    if (!purchaseScored) return [];
+    return buildTradeOffNotes(purchaseScored);
+  }, [purchaseScored]);
 
   // Build priority labels for explanation
   const priorityLabels: Record<string, string> = useMemo(() => {
@@ -97,7 +151,8 @@ export function DecisionWorkspace() {
     return labels;
   }, [priorities]);
 
-  // Handle AI-parsed intent
+  // --- Handlers ---
+
   const handleAIParsed = useCallback(
     (intent: {
       category: string;
@@ -105,15 +160,12 @@ export function DecisionWorkspace() {
       priorities: PriorityItem[];
       constraints: Constraint[];
     }) => {
-      // Update category (triggers catalog + config reload)
       setCategory(intent.category);
 
-      // Update budget
       if (intent.budget?.max) {
         setBudget(intent.budget.max);
       }
 
-      // Update priorities — merge with defaults so all attributes have values
       const defaultPri = buildDefaultPriorities(intent.category);
       const aiPriMap = new Map(
         intent.priorities.map((p) => [p.attributeKey, p.importance])
@@ -124,13 +176,14 @@ export function DecisionWorkspace() {
       }));
       setPriorities(merged);
 
-      // Update constraints
       if (intent.constraints.length > 0) {
         setConstraints(intent.constraints);
       }
 
-      // Reset selection
+      // Reset inspection selection
       setSelectedProductId(null);
+      // Reset purchase selection (new query may change results)
+      setPurchaseProductId(null);
     },
     []
   );
@@ -146,6 +199,9 @@ export function DecisionWorkspace() {
         }
         return [...prev, { attributeKey, importance }];
       });
+      // NOTE: Priority changes do NOT automatically invalidate purchase selection
+      // if the product remains eligible. This is intentional per spec.
+      // The validatedPurchaseId useMemo handles eligibility check.
     },
     []
   );
@@ -156,11 +212,27 @@ export function DecisionWorkspace() {
       setPriorities(buildDefaultPriorities(newCategory));
       setSelectedProductId(null);
       setConstraints([]);
+      setPurchaseProductId(null);
       if (newCategory === "laptop") setBudget(60000);
       else setBudget(DEFAULT_BUDGET);
     },
     []
   );
+
+  // --- Purchase Selection Handler ---
+  const handleSelectForPurchase = useCallback((productId: string) => {
+    setPurchaseProductId(productId);
+  }, []);
+
+  const handleDeselectPurchase = useCallback(() => {
+    setPurchaseProductId(null);
+  }, []);
+
+  const handleProceedToCheckout = useCallback(() => {
+    // Phase 5B/5C will attach Razorpay order creation here
+  }, []);
+
+  const isEmpty = result.scoredProducts.length === 0;
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -200,14 +272,18 @@ export function DecisionWorkspace() {
           </button>
         </div>
 
-        {/* Manual Controls (Phase 3 — collapsible) */}
+        {/* Manual Controls (collapsible) */}
         {showManualControls && (
           <div className="grid gap-6 lg:grid-cols-[1fr_320px] mb-8">
             <div className="space-y-6">
               <QueryInput
                 preference={preference}
                 categoryConfig={categoryConfig}
-                onBudgetChange={setBudget}
+                onBudgetChange={(newBudget) => {
+                  setBudget(newBudget);
+                  // Budget changes may invalidate purchase selection
+                  // (validatedPurchaseId useMemo handles this)
+                }}
                 onCategoryChange={handleCategoryChange}
                 categories={INITIAL_CATEGORIES}
               />
@@ -240,7 +316,7 @@ export function DecisionWorkspace() {
         )}
 
         {/* Empty State */}
-        {result.scoredProducts.length === 0 && (
+        {isEmpty && (
           <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center shadow-sm">
             <p className="text-zinc-400 text-sm">
               No products match your criteria. Try adjusting your budget or priorities.
@@ -249,13 +325,14 @@ export function DecisionWorkspace() {
         )}
 
         {/* Results */}
-        {result.scoredProducts.length > 0 && (
+        {!isEmpty && (
           <div className="space-y-8">
             {/* Ranked Products */}
             <RankedProducts
               scoredProducts={result.scoredProducts}
               selectedId={effectiveSelectedId}
               onSelect={setSelectedProductId}
+              purchaseId={validatedPurchaseId}
             />
 
             {/* Explanation */}
@@ -264,6 +341,29 @@ export function DecisionWorkspace() {
                 scoredProduct={selectedScored}
                 attributes={categoryConfig.attributes}
                 userPriorityLabels={priorityLabels}
+                isPurchaseSelected={selectedScored.product.id === validatedPurchaseId}
+                onSelectForPurchase={handleSelectForPurchase}
+              />
+            )}
+
+            {/* Decision Summary (shown when purchase is selected) */}
+            {purchaseScored && purchaseConfidence && (
+              <DecisionSummary
+                scoredProduct={purchaseScored}
+                confidence={purchaseConfidence}
+                whyMatches={purchaseWhyMatches}
+                tradeOffNotes={purchaseTradeOffNotes}
+                onDeselect={handleDeselectPurchase}
+              />
+            )}
+
+            {/* Checkout Readiness (shown when purchase is selected) */}
+            {purchaseScored && purchaseConfidence && (
+              <CheckoutReadiness
+                key={purchaseScored.product.id}
+                scoredProduct={purchaseScored}
+                confidence={purchaseConfidence}
+                onProceedToCheckout={handleProceedToCheckout}
               />
             )}
 

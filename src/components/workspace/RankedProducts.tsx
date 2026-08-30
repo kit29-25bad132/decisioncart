@@ -6,12 +6,15 @@ interface RankedProductsProps {
   scoredProducts: ScoredProduct[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** ID of the product explicitly chosen for purchase. */
+  purchaseId: string | null;
 }
 
 export function RankedProducts({
   scoredProducts,
   selectedId,
   onSelect,
+  purchaseId,
 }: RankedProductsProps) {
   if (scoredProducts.length === 0) return null;
 
@@ -27,6 +30,7 @@ export function RankedProducts({
       <div className="space-y-3">
         {scoredProducts.map((sp) => {
           const isSelected = sp.product.id === selectedId;
+          const isPurchaseSelected = sp.product.id === purchaseId;
           const isTop = sp.rank === 1;
 
           return (
@@ -52,6 +56,11 @@ export function RankedProducts({
                       {sp.rank}
                     </span>
                     <span className="text-xs text-zinc-400">{sp.product.brand}</span>
+                    {isPurchaseSelected && (
+                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                        Selected
+                      </span>
+                    )}
                   </div>
                   <p className="font-medium text-zinc-900 text-sm truncate">
                     {sp.product.name}

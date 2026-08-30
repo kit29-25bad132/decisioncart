@@ -94,6 +94,19 @@ export interface DecisionResult {
   categoryLabel: string;
 }
 
+// --- Decision Confidence ---
+
+export type ConfidenceLevel = "high" | "good" | "moderate" | "low";
+
+export interface DecisionConfidence {
+  /** Deterministic confidence score 0–100. */
+  score: number;
+  /** Human-readable confidence label based on range. */
+  level: ConfidenceLevel;
+  /** Brief explanation of why this confidence was assigned. */
+  explanation: string;
+}
+
 // --- Decision Matrix ---
 
 export interface MatrixCell {
