@@ -11,6 +11,8 @@ import type {
 } from "./provider";
 import { ProductProviderError } from "./provider";
 import { StaticCatalogProvider } from "./static-provider";
+import { MockExternalProvider } from "./mock-external-provider";
+import { FallbackProductProvider } from "./fallback-provider";
 
 /**
  * Registry of product data providers.
@@ -116,11 +118,29 @@ export async function fetchProducts(
 // --- Initialization ---
 
 /**
- * Initialize the registry with the default static catalog provider.
- * Called once at startup. Additional providers can be registered later.
+ * Initialize the registry with the default static catalog provider
+ * and optionally the mock external provider with fallback.
+ *
+ * The default application experience always uses the static demo catalog.
+ * The hybrid provider is registered but not set as default, so existing
+ * behavior is preserved unless explicitly configured.
  */
 export function initializeProviders(): void {
   registerProvider(new StaticCatalogProvider());
+  registerProvider(new MockExternalProvider());
+}
+
+/**
+ * Configure the hybrid fallback provider as the default.
+ * Primary = MockExternalProvider, Fallback = StaticCatalogProvider.
+ * This demonstrates the hybrid architecture without changing default behavior.
+ */
+export function configureHybridDefault(): void {
+  const external = new MockExternalProvider();
+  const static_ = new StaticCatalogProvider();
+  const hybrid = new FallbackProductProvider(external, static_);
+  registerProvider(hybrid);
+  setDefaultProvider(hybrid.id);
 }
 
 // --- Introspection ---

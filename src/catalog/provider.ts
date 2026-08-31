@@ -52,6 +52,14 @@ export interface ProductDataResult {
     cached?: boolean;
     /** Human-readable note about the fetch. */
     note?: string;
+    /** Whether a fallback provider was used. */
+    fallbackUsed?: boolean;
+    /** ID of the fallback provider that was used (if fallback occurred). */
+    fallbackProviderId?: string;
+    /** ID of the primary provider that was attempted first. */
+    primaryProviderId?: string;
+    /** Type of data source: demo, external, merchant, or hybrid. */
+    dataSourceType?: "demo" | "external" | "merchant" | "hybrid";
   };
 }
 

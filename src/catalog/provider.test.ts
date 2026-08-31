@@ -211,7 +211,7 @@ describe("ProductProviderRegistry", () => {
 
     expect(isProviderRegistered("provider-a")).toBe(true);
     expect(isProviderRegistered("provider-b")).toBe(true);
-    expect(getRegisteredProviderIds()).toHaveLength(3); // demo-catalog + a + b
+    expect(getRegisteredProviderIds()).toHaveLength(4); // demo-catalog + mock-external + a + b
   });
 
   it("isProviderRegistered returns false for unknown", () => {
