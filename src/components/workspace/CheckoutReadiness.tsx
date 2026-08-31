@@ -3,6 +3,12 @@
 import { useState } from "react";
 import type { ScoredProduct, DecisionConfidence } from "@/types";
 
+/** Safe payment details stored after successful verification. */
+interface VerifiedPaymentDetails {
+  orderId: string;
+  paymentId: string;
+}
+
 interface CheckoutReadinessProps {
   scoredProduct: ScoredProduct;
   confidence: DecisionConfidence;
@@ -93,8 +99,16 @@ export function CheckoutReadiness({
   >("idle");
 
   const [errorMessage, setErrorMessage] = useState("");
+  const [paymentDetails, setPaymentDetails] =
+    useState<VerifiedPaymentDetails | null>(null);
 
   const { product } = scoredProduct;
+
+  function handleReturnToDecision() {
+    setStatus("idle");
+    setPaymentDetails(null);
+    setErrorMessage("");
+  }
 
   async function handleProceed() {
     try {
@@ -169,6 +183,11 @@ export function CheckoutReadiness({
               );
             }
 
+            // Save safe payment details before showing success
+            setPaymentDetails({
+              orderId: response.razorpay_order_id,
+              paymentId: response.razorpay_payment_id,
+            });
             setStatus("success");
           } catch (error: unknown) {
             console.error("Payment verification failed:", error);
@@ -214,37 +233,195 @@ export function CheckoutReadiness({
     }
   }
 
-  // Payment verified successfully
-  if (status === "success") {
+  // Payment verified successfully — post-payment confirmation card
+  if (status === "success" && paymentDetails) {
     return (
-      <div className="bg-zinc-50 rounded-2xl border border-zinc-200 p-6 text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-zinc-100 mb-4">
-          <svg
-            className="w-6 h-6 text-zinc-700"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M5 13l4 4L19 7"
-            />
-          </svg>
+      <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        {/* Header */}
+        <div className="flex flex-col items-center text-center mb-6">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-50 mb-4">
+            <svg
+              className="w-7 h-7 text-emerald-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-zinc-900">
+            Purchase Confirmed
+          </h3>
+          <p className="text-sm text-zinc-500 mt-1 max-w-sm">
+            Your payment has been securely verified and the DecisionCart
+            purchase decision is complete.
+          </p>
         </div>
 
-        <h3 className="text-base font-semibold text-zinc-900 mb-1">
-          Payment Verified Successfully
-        </h3>
+        {/* Product Summary */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-4">
+          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+            Product Summary
+          </p>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-semibold text-zinc-900">
+                {product.name}
+              </p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {product.brand} · {product.category}
+              </p>
+            </div>
+            <p className="text-sm font-semibold text-zinc-900">
+              ₹{product.price.toLocaleString()}
+            </p>
+          </div>
+        </div>
 
-        <p className="text-sm text-zinc-500">
-          Your payment for{" "}
-          <span className="font-medium text-zinc-700">
-            {product.name}
-          </span>{" "}
-          has been securely verified.
-        </p>
+        {/* Decision Summary */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-4">
+          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+            Decision Summary
+          </p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-medium text-zinc-500">
+              Decision Confidence
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 text-xs font-semibold text-zinc-700">
+              {confidence.score}%
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            This product was selected through your personalized priorities and
+            transparent scoring.
+          </p>
+        </div>
+
+        {/* Payment Status */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-4">
+          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+            Payment Status
+          </p>
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-4 h-4 text-emerald-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+            <span className="text-sm font-medium text-emerald-700">
+              Verified
+            </span>
+          </div>
+        </div>
+
+        {/* Payment References */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-5">
+          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+            Payment References
+          </p>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500 w-16 shrink-0">
+                Order ID
+              </span>
+              <code className="text-xs font-mono text-zinc-700 bg-white px-2 py-0.5 rounded border border-zinc-100 break-all">
+                {paymentDetails.orderId}
+              </code>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500 w-16 shrink-0">
+                Payment ID
+              </span>
+              <code className="text-xs font-mono text-zinc-700 bg-white px-2 py-0.5 rounded border border-zinc-100 break-all">
+                {paymentDetails.paymentId}
+              </code>
+            </div>
+          </div>
+        </div>
+
+        {/* Why This Decision Was Completed */}
+        <div className="mb-5">
+          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+            Why This Decision Was Completed
+          </p>
+          <ul className="space-y-2">
+            <li className="flex items-start gap-2">
+              <svg
+                className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-xs text-zinc-600">
+                Personalized to your priorities
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <svg
+                className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-xs text-zinc-600">
+                Ranked using transparent decision scoring
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <svg
+                className="w-4 h-4 text-zinc-400 mt-0.5 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+              <span className="text-xs text-zinc-600">
+                Payment securely verified
+              </span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Return Button */}
+        <button
+          onClick={handleReturnToDecision}
+          className="w-full px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-all shadow-sm"
+        >
+          Make Another Decision
+        </button>
       </div>
     );
   }
