@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import type { UserPreference, PriorityItem, Constraint, ParserSource, ConstraintRelaxationSuggestion } from "@/types";
 import { runDecision, buildDecisionMatrix } from "@/engine/decision-engine";
 import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
 import { validatePurchaseSelection } from "@/engine/purchase-selection";
 import { getCategoryConfig } from "@/catalog/categories";
-import { getCatalog } from "@/catalog/demo-data";
+import type { Product } from "@/types";
+import { fetchProducts } from "@/catalog/registry";
 import { Header } from "./Header";
 import { AIQueryInput } from "./AIQueryInput";
 import { QueryInput } from "./QueryInput";
@@ -66,7 +67,31 @@ export function DecisionWorkspace() {
     [category, budget, priorities, constraints]
   );
 
-  const catalog = useMemo(() => getCatalog(category), [category]);
+  const [catalog, setCatalog] = useState<Product[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchProducts({ category })
+      .then((result) => {
+        if (!cancelled) {
+          setCatalog(result.products);
+          setCatalogError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Failed to load products";
+          setCatalogError(message);
+          setCatalog([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
 
   const result = useMemo(
     () => runDecision(catalog, preference, categoryConfig),
@@ -380,15 +405,27 @@ export function DecisionWorkspace() {
           </div>
         )}
 
+        {/* Catalog Error */}
+        {catalogError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-6 mb-6">
+            <p className="text-sm text-red-700">
+              Unable to load products: {catalogError}
+            </p>
+            <p className="text-xs text-red-500 mt-1">
+              Please try again or check your connection.
+            </p>
+          </div>
+        )}
+
         {/* Empty State */}
-        {isEmpty && result.emptyResultAnalysis && (
+        {isEmpty && !catalogError && result.emptyResultAnalysis && (
           <EmptyResultPanel
             analysis={result.emptyResultAnalysis}
             onApplySuggestion={handleApplySuggestion}
             onViewProduct={handleViewProduct}
           />
         )}
-        {isEmpty && !result.emptyResultAnalysis && (
+        {isEmpty && !catalogError && !result.emptyResultAnalysis && (
           <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center shadow-sm">
             <p className="text-zinc-400 text-sm">
               No products match your criteria. Try adjusting your budget or priorities.
