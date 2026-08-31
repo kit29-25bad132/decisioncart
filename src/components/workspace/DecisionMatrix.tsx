@@ -65,7 +65,7 @@ export function DecisionMatrix({ matrix }: DecisionMatrixProps) {
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-600 text-xs font-bold flex items-center justify-center">
                     {row.score > 0
-                      ? matrix.rows
+                      ? [...matrix.rows]
                           .sort((a, b) => b.score - a.score)
                           .findIndex((r) => r.product.id === row.product.id) + 1
                       : "—"}

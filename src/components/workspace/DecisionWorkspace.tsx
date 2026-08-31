@@ -22,7 +22,7 @@ import { CheckoutReadiness } from "./CheckoutReadiness";
 import { DecisionInsightPanel } from "./DecisionInsightPanel";
 import { EmptyResultPanel } from "./EmptyResultPanel";
 
-const DEFAULT_BUDGET = 35000;
+const DEFAULT_BUDGET_MAX = 35000;
 const INITIAL_CATEGORIES = [
   { key: "smartphone", label: "Smartphone" },
   { key: "laptop", label: "Laptop" },
@@ -33,13 +33,13 @@ function buildDefaultPriorities(category: string): PriorityItem[] {
   if (!config) return [];
   return config.attributes.map((attr) => ({
     attributeKey: attr.key,
-    importance: 2, // default to Medium
+    importance: attr.defaultImportance ?? 2,
   }));
 }
 
 export function DecisionWorkspace() {
   const [category, setCategory] = useState("smartphone");
-  const [budget, setBudget] = useState(DEFAULT_BUDGET);
+  const [budget, setBudget] = useState<{ min?: number; max?: number }>({ max: DEFAULT_BUDGET_MAX });
   const [priorities, setPriorities] = useState<PriorityItem[]>(
     buildDefaultPriorities("smartphone")
   );
@@ -60,7 +60,7 @@ export function DecisionWorkspace() {
   const preference: UserPreference = useMemo(
     () => ({
       category,
-      budget: { max: budget },
+      budget,
       priorities,
       constraints,
     }),
@@ -110,6 +110,9 @@ export function DecisionWorkspace() {
               sp.contributions.map((c) => [c.attributeKey, c.normalizedValue])
             ),
           ])
+        ),
+        new Map(
+          result.scoredProducts.map((sp) => [sp.product.id, sp.totalScore])
         )
       ),
     [result.scoredProducts, categoryConfig]
@@ -196,8 +199,8 @@ export function DecisionWorkspace() {
     }) => {
       setCategory(intent.category);
 
-      if (intent.budget?.max) {
-        setBudget(intent.budget.max);
+      if (intent.budget) {
+        setBudget(intent.budget);
       }
 
       // Use priorities directly from the parse result.
@@ -247,8 +250,7 @@ export function DecisionWorkspace() {
       setSelectedProductId(null);
       setConstraints([]);
       setPurchaseProductId(null);
-      if (newCategory === "laptop") setBudget(60000);
-      else setBudget(DEFAULT_BUDGET);
+      setBudget({ max: newCategory === "laptop" ? 60000 : DEFAULT_BUDGET_MAX });
     },
     []
   );
@@ -271,15 +273,11 @@ export function DecisionWorkspace() {
   // --- Empty Result Handlers ---
   const handleApplySuggestion = useCallback(
     (suggestion: ConstraintRelaxationSuggestion) => {
-      if (suggestion.type === "budget") {
-        if (suggestion.attributeKey === undefined && suggestion.suggestedValue !== undefined) {
-          // Budget suggestion
-          if (suggestion.id === "budget-max") {
-            setBudget(suggestion.suggestedValue);
-          } else if (suggestion.id === "budget-min") {
-            // For min budget, we still set budget to the suggested value
-            setBudget(suggestion.suggestedValue);
-          }
+      if (suggestion.type === "budget" && suggestion.suggestedValue !== undefined) {
+        if (suggestion.id === "budget-max") {
+          setBudget((prev) => ({ ...prev, max: suggestion.suggestedValue }));
+        } else if (suggestion.id === "budget-min") {
+          setBudget((prev) => ({ ...prev, min: suggestion.suggestedValue }));
         }
       } else if (suggestion.type === "constraint" && suggestion.attributeKey && suggestion.suggestedValue !== undefined && suggestion.operator) {
         // Constraint suggestion — update the constraint
@@ -369,10 +367,8 @@ export function DecisionWorkspace() {
               <QueryInput
                 preference={preference}
                 categoryConfig={categoryConfig}
-                onBudgetChange={(newBudget) => {
-                  setBudget(newBudget);
-                  // Budget changes may invalidate purchase selection
-                  // (validatedPurchaseId useMemo handles this)
+                onBudgetChange={(newMax) => {
+                  setBudget((prev) => ({ ...prev, max: newMax }));
                 }}
                 onCategoryChange={handleCategoryChange}
                 categories={INITIAL_CATEGORIES}

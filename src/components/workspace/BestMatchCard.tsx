@@ -100,16 +100,20 @@ export function BestMatchCard({ scoredProduct, attributes }: BestMatchCardProps)
               </ul>
             </div>
           )}
-          {weaknesses.length > 0 && (
-            <div>
+          <div>
               <p className="text-xs font-medium text-amber-600 mb-1">Trade-offs</p>
-              <ul className="text-sm text-zinc-600 space-y-0.5">
-                {weaknesses.map((w) => (
-                  <li key={w}>− {w}</li>
-                ))}
-              </ul>
+              {weaknesses.length > 0 ? (
+                <ul className="text-sm text-zinc-600 space-y-0.5">
+                  {weaknesses.map((w) => (
+                    <li key={w}>− {w}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-zinc-400 italic">
+                  No significant trade-offs based on your current priorities.
+                </p>
+              )}
             </div>
-          )}
         </div>
 
         {missingAttributes.length > 0 && (

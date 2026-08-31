@@ -12,6 +12,29 @@ interface ExplanationPanelProps {
   onSelectForPurchase?: (productId: string) => void;
 }
 
+/**
+ * Format contribution value to a human-readable points string.
+ * Uses enough precision to show small but real contributions
+ * without misleading false-zero display.
+ */
+function formatContributionPoints(contribution: number): string {
+  const points = contribution * 100;
+  if (points === 0) return "0";
+  if (points < 0.1) return points.toFixed(2);
+  if (points < 10) return points.toFixed(1);
+  return points.toFixed(1);
+}
+
+/**
+ * Format weight as a human-readable percentage string.
+ */
+function formatWeightPercent(weight: number): string {
+  const pct = weight * 100;
+  if (pct < 0.1) return "<0.1%";
+  if (pct < 1) return pct.toFixed(1) + "%";
+  return Math.round(pct) + "%";
+}
+
 export function ExplanationPanel({
   scoredProduct,
   attributes,
@@ -19,7 +42,7 @@ export function ExplanationPanel({
   isPurchaseSelected,
   onSelectForPurchase,
 }: ExplanationPanelProps) {
-  const { contributions, product } = scoredProduct;
+  const { contributions, product, totalScore } = scoredProduct;
 
   const sorted = [...contributions]
     .filter((c) => c.weight > 0)
@@ -38,32 +61,37 @@ export function ExplanationPanel({
 
       <div className="space-y-4">
         {sorted.map((c) => {
-          const pct = Math.round(c.contribution * 100);
           const normPct = Math.round(c.normalizedValue * 100);
           const priorityLabel = userPriorityLabels[c.attributeKey] ?? "Low";
+          const attrUnit = attributes.find((a) => a.key === c.attributeKey)?.unit;
 
           return (
-            <div key={c.attributeKey} className="border-b border-zinc-50 pb-4 last:border-0 last:pb-0">
+            <div
+              key={c.attributeKey}
+              className="border-b border-zinc-50 pb-4 last:border-0 last:pb-0"
+            >
+              {/* Header: attribute name + contribution points */}
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-zinc-700">
                   {c.label}
                 </span>
                 <span className="text-xs font-mono text-zinc-500">
-                  {pct}% of total score
+                  +{formatContributionPoints(c.contribution)} pts
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 text-xs">
+              {/* Detail grid: priority, performance, normalized, weight */}
+              <div className="grid grid-cols-4 gap-3 text-xs">
                 <div>
                   <p className="text-zinc-400 mb-0.5">Your Priority</p>
                   <p className="font-medium text-zinc-700">{priorityLabel}</p>
                 </div>
                 <div>
-                  <p className="text-zinc-400 mb-0.5">Product Performance</p>
+                  <p className="text-zinc-400 mb-0.5">Performance</p>
                   <p className="font-medium text-zinc-700">
                     {c.available
                       ? typeof c.rawValue === "number"
-                        ? `${c.rawValue.toLocaleString()}${attributes.find((a) => a.key === c.attributeKey)?.unit ? ` ${attributes.find((a) => a.key === c.attributeKey)!.unit}` : ""}`
+                        ? `${c.rawValue.toLocaleString()}${attrUnit ? ` ${attrUnit}` : ""}`
                         : String(c.rawValue)
                       : "Unknown"}
                   </p>
@@ -72,17 +100,59 @@ export function ExplanationPanel({
                   <p className="text-zinc-400 mb-0.5">Normalized</p>
                   <p className="font-medium text-zinc-700">{normPct}/100</p>
                 </div>
+                <div>
+                  <p className="text-zinc-400 mb-0.5">Decision Weight</p>
+                  <p className="font-medium text-zinc-700">
+                    {formatWeightPercent(c.weight)}
+                  </p>
+                </div>
               </div>
 
-              <div className="mt-2 w-full bg-zinc-100 rounded-full h-1.5">
-                <div
-                  className="bg-zinc-800 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${normPct}%` }}
-                />
+              {/* Progress bar = normalized performance (clearly labeled) */}
+              <div className="mt-2">
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-0.5">
+                  <span>Product performance</span>
+                  <span>{normPct}/100</span>
+                </div>
+                <div className="w-full bg-zinc-100 rounded-full h-1.5">
+                  <div
+                    className="bg-zinc-800 h-1.5 rounded-full transition-all duration-500"
+                    style={{ width: `${normPct}%` }}
+                  />
+                </div>
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* Score Breakdown Summary */}
+      <div className="mt-6 pt-4 border-t border-zinc-100">
+        <p className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+          Score Breakdown
+        </p>
+        <div className="space-y-1.5">
+          {sorted.map((c) => {
+            const points = c.contribution * 100;
+            return (
+              <div
+                key={c.attributeKey}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="text-zinc-600">{c.label}</span>
+                <span className="font-mono text-zinc-500">
+                  {points === 0 ? "—" : `+${formatContributionPoints(c.contribution)}`}
+                </span>
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between text-xs font-semibold pt-1.5 border-t border-zinc-100">
+            <span className="text-zinc-700">Final Decision Score</span>
+            <span className="font-mono text-zinc-900">
+              {totalScore} / 100
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Select This Product Action */}

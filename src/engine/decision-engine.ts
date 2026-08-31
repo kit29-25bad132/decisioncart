@@ -22,41 +22,69 @@ import { analyzeEmptyResults } from "./empty-result-analysis";
 
 // --- Weight Calculation ---
 
+/** Multiplier applied to explicitly prioritized attributes. */
+const PRIORITY_BOOST = 1.5;
+
+/** Fallback baseline importance when defaultImportance is not set. */
+const FALLBACK_BASELINE = 2;
+
 /**
  * Convert priority items into normalized weights summing to 1.0.
- * Higher-importance items receive exponentially more weight.
- * Attributes not in the priority list receive weight 0.
+ *
+ * Weight resolution rules:
+ *  1. Explicitly requested attributes receive a boosted importance.
+ *  2. Unspecified but relevant category attributes receive baseline importance
+ *     from category configuration (defaultImportance).
+ *  3. The final weights are normalized so they sum to 1.0.
+ *
+ * This is category-agnostic: behavior is driven entirely by AttributeConfig.
  */
 export function calculateWeights(
   priorities: PriorityItem[],
-  allAttributeKeys: string[]
+  attributes: AttributeConfig[]
 ): Record<string, number> {
-  const weights: Record<string, number> = {};
+  const priorityMap = new Map(
+    priorities.map((p) => [p.attributeKey, p.importance])
+  );
 
-  // Initialize all attributes to 0
-  for (const key of allAttributeKeys) {
-    weights[key] = 0;
+  // Step 1: compute effective importance for every attribute
+  const effectiveImportances: { key: string; importance: number }[] = [];
+
+  for (const attr of attributes) {
+    const explicit = priorityMap.get(attr.key);
+    const baseline = attr.defaultImportance ?? FALLBACK_BASELINE;
+
+    let effective: number;
+    if (explicit !== undefined) {
+      // Explicit user priority: boost on top of baseline
+      effective = explicit * PRIORITY_BOOST + baseline;
+    } else {
+      // No explicit priority: use baseline category importance
+      effective = baseline;
+    }
+    effectiveImportances.push({ key: attr.key, importance: effective });
   }
 
-  if (priorities.length === 0) return weights;
+  // Step 2: sort by effective importance descending for exponential decay
+  effectiveImportances.sort((a, b) => b.importance - a.importance);
 
-  // Sort by importance descending
-  const sorted = [...priorities].sort((a, b) => b.importance - a.importance);
-
-  // Exponential decay: highest priority gets base^0, next gets base^1, etc.
+  // Step 3: exponential decay — highest effective importance gets base^0, etc.
   const base = 0.5;
   let rawSum = 0;
   const rawWeights: number[] = [];
 
-  for (let i = 0; i < sorted.length; i++) {
-    const raw = Math.pow(base, i) * sorted[i].importance;
+  for (let i = 0; i < effectiveImportances.length; i++) {
+    const raw =
+      Math.pow(base, i) * effectiveImportances[i].importance;
     rawWeights.push(raw);
     rawSum += raw;
   }
 
-  // Normalize to sum to 1.0
-  for (let i = 0; i < sorted.length; i++) {
-    weights[sorted[i].attributeKey] = rawSum > 0 ? rawWeights[i] / rawSum : 0;
+  // Step 4: normalize to sum to 1.0
+  const weights: Record<string, number> = {};
+  for (let i = 0; i < effectiveImportances.length; i++) {
+    weights[effectiveImportances[i].key] =
+      rawSum > 0 ? rawWeights[i] / rawSum : 0;
   }
 
   return weights;
@@ -216,7 +244,10 @@ function identifyStrengthsAndWeaknesses(
   );
 
   const strengths = sorted.slice(0, 2).map((c) => c.label);
+  // Weaknesses: lowest contribution-to-weight ratio, excluding any already in strengths
+  const strengthSet = new Set(strengths);
   const weaknesses = sorted
+    .filter((c) => !strengthSet.has(c.label))
     .slice(-2)
     .reverse()
     .map((c) => c.label);
@@ -394,7 +425,8 @@ function passesBudget(product: Product, budget?: { min?: number; max?: number })
 export function buildDecisionMatrix(
   products: Product[],
   attributes: AttributeConfig[],
-  normalized: Map<string, Record<string, number | null>>
+  normalized: Map<string, Record<string, number | null>>,
+  scores?: Map<string, number>
 ): DecisionMatrix {
   const rows: MatrixRow[] = products.map((product) => {
     const norm = normalized.get(product.id) ?? {};
@@ -411,7 +443,7 @@ export function buildDecisionMatrix(
     return {
       product,
       cells,
-      score: 0, // filled in after scoring
+      score: scores?.get(product.id) ?? 0,
     };
   });
 
@@ -444,10 +476,10 @@ export function runDecision(
     };
   }
 
-  // 2. Calculate weights from priorities
+  // 2. Calculate weights from priorities + category baseline importance
   const weights = calculateWeights(
     preference.priorities,
-    attributes.map((a) => a.key)
+    attributes
   );
 
   // 3. Normalize all attributes
