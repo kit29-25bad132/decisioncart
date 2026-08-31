@@ -12,6 +12,8 @@ export interface AttributeConfig {
   unit?: string;
   comparisonDirection: "higher_is_better" | "lower_is_better";
   description: string;
+  /** Baseline importance for this attribute within the category (1–3). */
+  defaultImportance?: number;
 }
 
 export interface CategoryConfig {

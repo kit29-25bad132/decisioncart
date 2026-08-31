@@ -113,6 +113,15 @@ const BUDGET_PATTERNS: {
   regex: RegExp;
   extract: (match: RegExpMatchArray) => { min?: number; max?: number };
 }[] = [
+  // "between 20000 and 40000", "between ₹20k and ₹40k"
+  {
+    regex:
+      /between\s*(?:₹?\s*)?([\d,]+(?:\.\d+)?)\s*(k|K)?\s*and\s*(?:₹?\s*)?([\d,]+(?:\.\d+)?)\s*(k|K)?/i,
+    extract: (m) => ({
+      min: parseCurrencyAmount(m[1], !!m[2]),
+      max: parseCurrencyAmount(m[3], !!m[4]),
+    }),
+  },
   // "under 30000", "below 30k", "within 30000"
   {
     regex:
@@ -129,12 +138,20 @@ const BUDGET_PATTERNS: {
       min: parseCurrencyAmount(m[1], m[0].toLowerCase().includes("k")),
     }),
   },
-  // "budget 30000", "price 30k", "₹30000"
+  // "budget 30000", "budget to 40000", "price 30k"
   {
     regex:
-      /(?:budget|price|around|about|approximately|near)\s*(?:₹?\s*)?([\d,]+(?:\.\d+)?)\s*(?:k|K)?/i,
+      /(?:budget|price|around|about|approximately|near)(?:\s+to)?\s*(?:₹?\s*)?([\d,]+(?:\.\d+)?)\s*(?:k|K)?/i,
     extract: (m) => ({
       max: parseCurrencyAmount(m[1], m[0].toLowerCase().includes("k")),
+    }),
+  },
+  // "make it 40000", "set to 35000"
+  {
+    regex:
+      /(?:make|set)\s+(?:it\s+)?(?:to\s+)?(?:₹?\s*)?([\d,]+(?:\.\d+)?)\s*(k|K)?/i,
+    extract: (m) => ({
+      max: parseCurrencyAmount(m[1], !!m[2]),
     }),
   },
   // Standalone "₹30000" or "30000"

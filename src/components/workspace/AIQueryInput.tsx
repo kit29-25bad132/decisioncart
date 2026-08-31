@@ -104,7 +104,7 @@ export function AIQueryInput({
         </div>
         {queryHistory.length > 0 && (
           <span className="text-xs text-zinc-300 bg-zinc-50 px-2 py-1 rounded-full">
-            {queryHistory.length} query{queryHistory.length !== 1 ? "ies" : "y"}
+            {queryHistory.length} {queryHistory.length === 1 ? "query" : "queries"}
           </span>
         )}
       </div>
@@ -220,7 +220,7 @@ export function AIQueryInput({
                 value={`Above ₹${lastResult.intent.budget.min.toLocaleString()}`}
               />
             )}
-            {lastResult.intent.priorities
+            {[...lastResult.intent.priorities]
               .sort((a, b) => b.importance - a.importance)
               .slice(0, 4)
               .map((p) => (

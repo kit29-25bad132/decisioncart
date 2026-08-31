@@ -15,6 +15,7 @@ export const SMARTPHONE_CONFIG: CategoryConfig = {
       type: "numeric",
       comparisonDirection: "higher_is_better",
       description: "Overall camera quality score (composite of resolution, features, low-light performance)",
+      defaultImportance: 3,
     },
     {
       key: "battery_mah",
@@ -23,6 +24,7 @@ export const SMARTPHONE_CONFIG: CategoryConfig = {
       unit: "mAh",
       comparisonDirection: "higher_is_better",
       description: "Battery capacity in milliamp-hours",
+      defaultImportance: 2,
     },
     {
       key: "display_inches",
@@ -31,6 +33,7 @@ export const SMARTPHONE_CONFIG: CategoryConfig = {
       unit: "inches",
       comparisonDirection: "higher_is_better",
       description: "Screen diagonal size",
+      defaultImportance: 2,
     },
     {
       key: "ram_gb",
@@ -39,6 +42,7 @@ export const SMARTPHONE_CONFIG: CategoryConfig = {
       unit: "GB",
       comparisonDirection: "higher_is_better",
       description: "Random access memory capacity",
+      defaultImportance: 3,
     },
     {
       key: "storage_gb",
@@ -47,6 +51,7 @@ export const SMARTPHONE_CONFIG: CategoryConfig = {
       unit: "GB",
       comparisonDirection: "higher_is_better",
       description: "Internal storage capacity",
+      defaultImportance: 2,
     },
     {
       key: "five_g",
@@ -54,6 +59,7 @@ export const SMARTPHONE_CONFIG: CategoryConfig = {
       type: "binary",
       comparisonDirection: "higher_is_better",
       description: "Whether the device supports 5G connectivity",
+      defaultImportance: 1,
     },
   ],
 };
@@ -68,6 +74,7 @@ export const LAPTOP_CONFIG: CategoryConfig = {
       type: "numeric",
       comparisonDirection: "higher_is_better",
       description: "CPU performance score based on benchmark",
+      defaultImportance: 3,
     },
     {
       key: "ram_gb",
@@ -76,6 +83,7 @@ export const LAPTOP_CONFIG: CategoryConfig = {
       unit: "GB",
       comparisonDirection: "higher_is_better",
       description: "Random access memory capacity",
+      defaultImportance: 3,
     },
     {
       key: "battery_hours",
@@ -84,6 +92,7 @@ export const LAPTOP_CONFIG: CategoryConfig = {
       unit: "hours",
       comparisonDirection: "higher_is_better",
       description: "Estimated battery life under typical use",
+      defaultImportance: 2,
     },
     {
       key: "display_inches",
@@ -92,6 +101,7 @@ export const LAPTOP_CONFIG: CategoryConfig = {
       unit: "inches",
       comparisonDirection: "higher_is_better",
       description: "Screen diagonal size",
+      defaultImportance: 2,
     },
     {
       key: "weight_kg",
@@ -100,6 +110,7 @@ export const LAPTOP_CONFIG: CategoryConfig = {
       unit: "kg",
       comparisonDirection: "lower_is_better",
       description: "Device weight (lighter is better for portability)",
+      defaultImportance: 2,
     },
     {
       key: "ssd_gb",
@@ -108,6 +119,7 @@ export const LAPTOP_CONFIG: CategoryConfig = {
       unit: "GB",
       comparisonDirection: "higher_is_better",
       description: "SSD storage capacity",
+      defaultImportance: 2,
     },
   ],
 };

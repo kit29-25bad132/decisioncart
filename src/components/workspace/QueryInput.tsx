@@ -80,7 +80,7 @@ export function QueryInput({
             <>
               {" "}
               — prioritizing{" "}
-              {preference.priorities
+              {[...preference.priorities]
                 .sort((a, b) => b.importance - a.importance)
                 .map((p) => {
                   const attr = categoryConfig.attributes.find(
