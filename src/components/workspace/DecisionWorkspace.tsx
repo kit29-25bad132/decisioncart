@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import type { UserPreference, PriorityItem, Constraint } from "@/types";
+import type { UserPreference, PriorityItem, Constraint, ParserSource, ConstraintRelaxationSuggestion } from "@/types";
 import { runDecision, buildDecisionMatrix } from "@/engine/decision-engine";
 import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
 import { validatePurchaseSelection } from "@/engine/purchase-selection";
@@ -18,6 +18,8 @@ import { ExplanationPanel } from "./ExplanationPanel";
 import { TradeOffSection } from "./TradeOffSection";
 import { DecisionSummary } from "./DecisionSummary";
 import { CheckoutReadiness } from "./CheckoutReadiness";
+import { DecisionInsightPanel } from "./DecisionInsightPanel";
+import { EmptyResultPanel } from "./EmptyResultPanel";
 
 const DEFAULT_BUDGET = 35000;
 const INITIAL_CATEGORIES = [
@@ -46,6 +48,11 @@ export function DecisionWorkspace() {
 
   // --- Phase 5A: Purchase Selection State ---
   const [purchaseProductId, setPurchaseProductId] = useState<string | null>(null);
+
+  // --- Decision Insight Panel State ---
+  const [hasParsedQuery, setHasParsedQuery] = useState(false);
+  const [lastParserSource, setLastParserSource] = useState<ParserSource>("fallback");
+  const [lastOriginalQuery, setLastOriginalQuery] = useState("");
 
   const categoryConfig = useMemo(() => getCategoryConfig(category)!, [category]);
 
@@ -159,6 +166,8 @@ export function DecisionWorkspace() {
       budget?: { min?: number; max?: number };
       priorities: PriorityItem[];
       constraints: Constraint[];
+      source: ParserSource;
+      originalQuery: string;
     }) => {
       setCategory(intent.category);
 
@@ -166,19 +175,19 @@ export function DecisionWorkspace() {
         setBudget(intent.budget.max);
       }
 
-      const defaultPri = buildDefaultPriorities(intent.category);
-      const aiPriMap = new Map(
-        intent.priorities.map((p) => [p.attributeKey, p.importance])
-      );
-      const merged = defaultPri.map((dp) => ({
-        ...dp,
-        importance: aiPriMap.get(dp.attributeKey) ?? dp.importance,
-      }));
-      setPriorities(merged);
+      // Use priorities directly from the parse result.
+      // The parse dispatcher (parseShoppingQuery) already handles refinement
+      // merging, so returned priorities reflect the effective preference state.
+      setPriorities(intent.priorities);
 
-      if (intent.constraints.length > 0) {
-        setConstraints(intent.constraints);
-      }
+      // Constraints: the merge logic in parseShoppingQuery already handles
+      // preserving existing constraints during refinement.
+      setConstraints(intent.constraints);
+
+      // Update Decision Insight Panel state
+      setHasParsedQuery(true);
+      setLastParserSource(intent.source);
+      setLastOriginalQuery(intent.originalQuery);
 
       // Reset inspection selection
       setSelectedProductId(null);
@@ -234,6 +243,47 @@ export function DecisionWorkspace() {
 
   const isEmpty = result.scoredProducts.length === 0;
 
+  // --- Empty Result Handlers ---
+  const handleApplySuggestion = useCallback(
+    (suggestion: ConstraintRelaxationSuggestion) => {
+      if (suggestion.type === "budget") {
+        if (suggestion.attributeKey === undefined && suggestion.suggestedValue !== undefined) {
+          // Budget suggestion
+          if (suggestion.id === "budget-max") {
+            setBudget(suggestion.suggestedValue);
+          } else if (suggestion.id === "budget-min") {
+            // For min budget, we still set budget to the suggested value
+            setBudget(suggestion.suggestedValue);
+          }
+        }
+      } else if (suggestion.type === "constraint" && suggestion.attributeKey && suggestion.suggestedValue !== undefined && suggestion.operator) {
+        // Constraint suggestion — update the constraint
+        setConstraints((prev) => {
+          const existing = prev.find(
+            (c) => c.attributeKey === suggestion.attributeKey
+          );
+          if (existing) {
+            return prev.map((c) =>
+              c.attributeKey === suggestion.attributeKey
+                ? { ...c, value: suggestion.suggestedValue, operator: suggestion.operator }
+                : c
+            );
+          }
+          return prev;
+        });
+      }
+    },
+    []
+  );
+
+  const handleViewProduct = useCallback(
+    (productId: string) => {
+      setSelectedProductId(productId);
+      setShowManualControls(false);
+    },
+    []
+  );
+
   return (
     <div className="min-h-screen bg-zinc-50">
       <Header categoryLabel={categoryConfig.label} />
@@ -245,9 +295,24 @@ export function DecisionWorkspace() {
             currentCategory={category}
             currentPriorities={priorities}
             currentBudget={preference.budget}
+            currentConstraints={constraints}
             onParsed={handleAIParsed}
           />
         </div>
+
+        {/* Decision Insight Panel */}
+        {hasParsedQuery && (
+          <div className="mb-6">
+            <DecisionInsightPanel
+              categoryLabel={categoryConfig.label}
+              budget={preference.budget}
+              priorities={priorities}
+              attributes={categoryConfig.attributes}
+              parserSource={lastParserSource}
+              originalQuery={lastOriginalQuery}
+            />
+          </div>
+        )}
 
         {/* Toggle Manual Controls */}
         <div className="mb-6">
@@ -316,7 +381,14 @@ export function DecisionWorkspace() {
         )}
 
         {/* Empty State */}
-        {isEmpty && (
+        {isEmpty && result.emptyResultAnalysis && (
+          <EmptyResultPanel
+            analysis={result.emptyResultAnalysis}
+            onApplySuggestion={handleApplySuggestion}
+            onViewProduct={handleViewProduct}
+          />
+        )}
+        {isEmpty && !result.emptyResultAnalysis && (
           <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center shadow-sm">
             <p className="text-zinc-400 text-sm">
               No products match your criteria. Try adjusting your budget or priorities.

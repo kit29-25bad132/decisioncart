@@ -59,6 +59,9 @@ export async function POST(request: NextRequest) {
               priorities: Array.isArray(currentPreferences.priorities)
                 ? currentPreferences.priorities
                 : [],
+              constraints: Array.isArray(currentPreferences.constraints)
+                ? currentPreferences.constraints
+                : undefined,
             }
           : undefined,
     };

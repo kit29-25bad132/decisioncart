@@ -5,6 +5,26 @@
 
 import type { CategoryConfig, PriorityItem, Constraint } from "@/types";
 
+// --- Refinement Mode ---
+
+/**
+ * Classification of how a follow-up query modifies existing preferences.
+ *
+ * - "exclusive": Only mentioned attributes matter (e.g. "just focus on camera")
+ * - "increase":  Boost importance of mentioned attributes
+ * - "decrease":  Reduce importance of mentioned attributes
+ * - "ignore":    Set mentioned attributes to low importance
+ * - "budget":    Only budget is being changed
+ * - "normal":    Full fresh query that replaces preferences entirely
+ */
+export type RefinementMode =
+  | "exclusive"
+  | "increase"
+  | "decrease"
+  | "ignore"
+  | "budget"
+  | "normal";
+
 // --- Parsed Intent ---
 
 export interface ParsedShoppingIntent {
@@ -14,6 +34,8 @@ export interface ParsedShoppingIntent {
   constraints: Constraint[];
   confidence: number; // 0–1, how confident the parser is
   originalQuery: string;
+  /** How this query relates to a previous query (set during refinement merge). */
+  refinementMode?: RefinementMode;
 }
 
 // --- Parser Result ---
@@ -50,6 +72,7 @@ export interface ParserContext {
     category: string;
     budget?: { min?: number; max?: number };
     priorities: PriorityItem[];
+    constraints?: Constraint[];
   };
 }
 

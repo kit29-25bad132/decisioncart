@@ -8,11 +8,14 @@ interface AIQueryInputProps {
   currentCategory: string;
   currentPriorities: PriorityItem[];
   currentBudget?: { min?: number; max?: number };
+  currentConstraints?: Constraint[];
   onParsed: (intent: {
     category: string;
     budget?: { min?: number; max?: number };
     priorities: PriorityItem[];
     constraints: Constraint[];
+    source: "ai" | "fallback";
+    originalQuery: string;
   }) => void;
 }
 
@@ -20,6 +23,7 @@ export function AIQueryInput({
   currentCategory,
   currentPriorities,
   currentBudget,
+  currentConstraints,
   onParsed,
 }: AIQueryInputProps) {
   const [query, setQuery] = useState("");
@@ -49,6 +53,7 @@ export function AIQueryInput({
               category: currentCategory,
               budget: currentBudget,
               priorities: currentPriorities,
+              constraints: currentConstraints,
             },
           }),
         });
@@ -67,6 +72,8 @@ export function AIQueryInput({
             budget: result.intent.budget,
             priorities: result.intent.priorities,
             constraints: result.intent.constraints,
+            source: result.source,
+            originalQuery: trimmed,
           });
           setQuery("");
         } else {
@@ -80,7 +87,7 @@ export function AIQueryInput({
         setIsLoading(false);
       }
     },
-    [query, isLoading, currentCategory, currentBudget, currentPriorities, onParsed]
+    [query, isLoading, currentCategory, currentBudget, currentPriorities, currentConstraints, onParsed]
   );
 
   return (

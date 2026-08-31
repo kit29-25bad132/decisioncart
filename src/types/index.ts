@@ -43,10 +43,14 @@ export interface PriorityItem {
   importance: number; // 1 = low, 2 = medium, 3 = high
 }
 
+export type ComparisonOperator = ">=" | "<=" | ">" | "<" | "=" | "!=";
+
 export interface Constraint {
-  type: "max_price" | "min_price" | "required_attribute" | "exclude_attribute";
+  type: "max_price" | "min_price" | "required_attribute" | "exclude_attribute" | "attribute_comparison";
   attributeKey?: string;
   value?: number | boolean | string;
+  /** Operator for attribute_comparison constraints. */
+  operator?: ComparisonOperator;
 }
 
 export interface UserPreference {
@@ -92,6 +96,8 @@ export interface DecisionResult {
   tradeOffs: TradeOff[];
   querySummary: string;
   categoryLabel: string;
+  /** Present only when zero products satisfy all requirements. */
+  emptyResultAnalysis?: EmptyResultAnalysis;
 }
 
 // --- Decision Confidence ---
@@ -124,4 +130,72 @@ export interface MatrixRow {
 export interface DecisionMatrix {
   attributes: AttributeConfig[];
   rows: MatrixRow[];
+}
+
+// --- Decision Insight Panel ---
+
+export type ParserSource = "ai" | "fallback";
+
+export interface DecisionInsightData {
+  /** Human-readable category label (e.g. "Smartphone"). */
+  categoryLabel: string;
+  /** Category attribute key. */
+  categoryKey: string;
+  /** Budget, if provided. */
+  budget?: { min?: number; max?: number };
+  /** Priorities extracted from the query, sorted by importance. */
+  priorities: PriorityItem[];
+  /** All attribute configs for the current category. */
+  attributes: AttributeConfig[];
+  /** Whether AI or fallback parser was used. */
+  parserSource: ParserSource;
+  /** The original natural-language query the user typed. */
+  originalQuery: string;
+}
+
+// --- Empty Result Analysis ---
+
+/** A single requirement that excluded products. */
+export interface FailedRequirement {
+  type: "budget" | "constraint";
+  attributeKey?: string;
+  description: string;
+  excludedProductCount: number;
+}
+
+/** A suggestion for relaxing a constraint to get results. */
+export interface ConstraintRelaxationSuggestion {
+  id: string;
+  type: "budget" | "constraint";
+  attributeKey?: string;
+  title: string;
+  explanation: string;
+  currentValue?: number;
+  suggestedValue?: number;
+  operator?: ComparisonOperator;
+  matchingProductCount: number;
+  affectedProductIds?: string[];
+}
+
+/** How close a product is to satisfying all requirements. */
+export interface ClosestMatch {
+  product: Product;
+  totalRequirements: number;
+  metRequirements: number;
+  unmetCount: number;
+  unmetDetails: {
+    type: "budget" | "constraint";
+    attributeKey?: string;
+    description: string;
+    gap?: number;
+  }[];
+}
+
+/** Full analysis of why no products matched and what could help. */
+export interface EmptyResultAnalysis {
+  hasResults: boolean;
+  reason: string;
+  failedRequirements: FailedRequirement[];
+  suggestions: ConstraintRelaxationSuggestion[];
+  closestMatches: ClosestMatch[];
 }

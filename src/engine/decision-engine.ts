@@ -18,6 +18,7 @@ import type {
   TradeOff,
   UserPreference,
 } from "@/types";
+import { analyzeEmptyResults } from "./empty-result-analysis";
 
 // --- Weight Calculation ---
 
@@ -279,6 +280,65 @@ function detectTradeOffs(
 
 // --- Hard Constraints ---
 
+/**
+ * Extract a numeric value from a product attribute value.
+ * Handles raw numbers, numeric strings ("8", "256"), and strings with units
+ * ("8 GB", "256GB", "6.7 inches", "5000 mAh").
+ * Returns null if the value cannot be converted to a number.
+ */
+function extractNumericValue(
+  val: number | boolean | string | null | undefined
+): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "number") return val;
+  if (typeof val === "boolean") return val ? 1 : 0;
+  if (typeof val === "string") {
+    // Strip common units and whitespace, then parse
+    const cleaned = val
+      .replace(/\s+/g, "")
+      .replace(/gb|mb|ghz|mhz|mah|hours|inches|kg|in|cm|mm|wh/gi, "")
+      .replace(/,/g, "");
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? null : num;
+  }
+  return null;
+}
+
+/**
+ * Evaluate a single attribute_comparison constraint against a product.
+ * Missing data: product passes (we cannot prove it fails the constraint).
+ */
+function passesAttributeComparison(
+  product: Product,
+  constraint: Constraint
+): boolean {
+  if (!constraint.attributeKey || !constraint.operator) return true;
+
+  const rawVal = product.attributes[constraint.attributeKey];
+  const productNum = extractNumericValue(rawVal);
+  const constraintNum = extractNumericValue(constraint.value);
+
+  // If either value cannot be resolved, product passes (missing data = eligible)
+  if (productNum === null || constraintNum === null) return true;
+
+  switch (constraint.operator) {
+    case ">=":
+      return productNum >= constraintNum;
+    case "<=":
+      return productNum <= constraintNum;
+    case ">":
+      return productNum > constraintNum;
+    case "<":
+      return productNum < constraintNum;
+    case "=":
+      return productNum === constraintNum;
+    case "!=":
+      return productNum !== constraintNum;
+    default:
+      return true;
+  }
+}
+
 function passesConstraints(
   product: Product,
   constraints?: Constraint[]
@@ -303,8 +363,28 @@ function passesConstraints(
         if (val === constraint.value) return false;
         break;
       }
+      case "attribute_comparison": {
+        if (!passesAttributeComparison(product, constraint)) return false;
+        break;
+      }
     }
   }
+
+  return true;
+}
+
+/**
+ * Check if a product passes the budget filter.
+ * Budget is a HARD eligibility constraint, not a preference.
+ */
+function passesBudget(product: Product, budget?: { min?: number; max?: number }): boolean {
+  if (!budget) return true;
+
+  const price = product.price;
+  if (price === null || price === undefined) return true; // Unknown price is eligible
+
+  if (budget.max !== undefined && price > budget.max) return false;
+  if (budget.min !== undefined && price < budget.min) return false;
 
   return true;
 }
@@ -347,17 +427,20 @@ export function runDecision(
 ): DecisionResult {
   const { attributes } = categoryConfig;
 
-  // 1. Filter by hard constraints
-  const filtered = products.filter((p) =>
-    passesConstraints(p, preference.constraints)
+  // 1. Filter by hard constraints (budget + explicit constraints)
+  const filtered = products.filter(
+    (p) =>
+      passesBudget(p, preference.budget) && passesConstraints(p, preference.constraints)
   );
 
   if (filtered.length === 0) {
+    const emptyAnalysis = analyzeEmptyResults(products, preference, categoryConfig);
     return {
       scoredProducts: [],
       tradeOffs: [],
       querySummary: buildQuerySummary(preference, categoryConfig),
       categoryLabel: categoryConfig.label,
+      emptyResultAnalysis: emptyAnalysis,
     };
   }
 
