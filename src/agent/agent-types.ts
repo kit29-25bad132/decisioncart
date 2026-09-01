@@ -5,7 +5,8 @@
 // ============================================================
 
 import type { ParsedShoppingIntent } from "@/lib/ai/types";
-import type { UserPreference } from "@/types";
+import type { Product, UserPreference } from "@/types";
+import type { ProviderInfo } from "@/catalog/provider";
 
 // --- Agent Status ---
 
@@ -77,12 +78,43 @@ export interface AgentInput {
   currentPreferences?: UserPreference;
 }
 
+// --- Tool Result Types ---
+
+/** Metadata about a catalog search fetch operation. */
+export interface CatalogSearchMetadata {
+  totalCount?: number;
+  budgetFiltered?: boolean;
+  cached?: boolean;
+  note?: string;
+  fallbackUsed?: boolean;
+  fallbackProviderId?: string;
+  primaryProviderId?: string;
+  dataSourceType?: "demo" | "external" | "merchant" | "hybrid";
+}
+
+/** Typed result from the search_catalog bounded tool. */
+export interface CatalogSearchToolResult {
+  /** Whether the tool execution succeeded. */
+  success: boolean;
+  /** Products returned by the catalog provider. */
+  products: Product[];
+  /** Information about which provider supplied the data. */
+  provider: ProviderInfo;
+  /** ISO 8601 timestamp of when data was fetched. */
+  fetchedAt: string;
+  /** Optional metadata about the fetch operation. */
+  metadata?: CatalogSearchMetadata;
+  /** Human-readable summary of the search result. */
+  outputSummary: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Agent Result ---
 
 /**
  * The final result of an agent run.
- * The recommendation field is kept generic to avoid coupling with DecisionResult
- * at this early stage. Concrete tool outputs are attached via `toolResults`.
+ * Concrete tool outputs are typed to avoid untyped Record fields.
  */
 export interface AgentResult {
   /** Final status of the agent execution. */
@@ -91,8 +123,8 @@ export interface AgentResult {
   parsedIntent: ParsedShoppingIntent;
   /** Observable execution steps in order. */
   steps: AgentStep[];
-  /** Optional recommendation data from tool execution (generic to allow evolution). */
-  recommendation?: Record<string, unknown>;
+  /** Typed result from the catalog search tool, if executed. */
+  catalogSearchResult?: CatalogSearchToolResult;
   /** Error message if the agent run failed. */
   error?: string;
 }
