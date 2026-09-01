@@ -530,7 +530,21 @@ function detectImportance(query: string, attributeName: string): number {
   // Check a window around the attribute name (80 chars before and after)
   const start = Math.max(0, nameIdx - 80);
   const end = Math.min(query.length, nameIdx + attributeName.length + 80);
-  const window = query.substring(start, end);
+  const window = query.substring(start, end).toLowerCase();
+
+  // High-priority phrase detection (before IMPORTANCE_MAP loop)
+  if (
+    /care\s+more|more\s+about|prioritize|prioritise|must\s+have|highest\s+priority/.test(window)
+  ) {
+    return 3;
+  }
+
+  // Low-priority phrase detection (before IMPORTANCE_MAP loop)
+  if (
+    /care\s+less|less\s+about|don['\u2019]?t\s+care|not\s+important|low\s+priority/.test(window)
+  ) {
+    return 1;
+  }
 
   // Check from highest to lowest importance
   for (const [keyword, importance] of Object.entries(IMPORTANCE_MAP)) {

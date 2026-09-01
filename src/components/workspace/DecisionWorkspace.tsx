@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type { UserPreference, PriorityItem, Constraint, ParserSource, ConstraintRelaxationSuggestion } from "@/types";
-import { runDecision, buildDecisionMatrix } from "@/engine/decision-engine";
+import { runDecision, buildDecisionMatrix, resolveEffectiveSelectedId } from "@/engine/decision-engine";
 import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
 import { validatePurchaseSelection } from "@/engine/purchase-selection";
 import { getCategoryConfig } from "@/catalog/categories";
@@ -126,12 +126,11 @@ export function DecisionWorkspace() {
     [purchaseProductId, result.scoredProducts]
   );
 
-  // Auto-select top product for inspection
-  const effectiveSelectedId =
-    selectedProductId ??
-    (result.scoredProducts.length > 0
-      ? result.scoredProducts[0].product.id
-      : null);
+  // Auto-select top product for inspection (prevents stale selections)
+  const effectiveSelectedId = resolveEffectiveSelectedId(
+    selectedProductId,
+    result.scoredProducts
+  );
 
   const selectedScored = result.scoredProducts.find(
     (sp) => sp.product.id === effectiveSelectedId

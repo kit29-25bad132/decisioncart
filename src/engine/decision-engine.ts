@@ -535,6 +535,34 @@ export function runDecision(
   };
 }
 
+// --- Stale Selection Prevention ---
+
+/**
+ * Safely resolve the effective selected product ID.
+ * Prevents stale selections when the selected product is no longer in results.
+ *
+ * Rules:
+ *  1. If selectedProductId exists AND present in scoredProducts → return it.
+ *  2. If selectedProductId is null → return top ranked product ID.
+ *  3. If selectedProductId exists but not in scoredProducts → return top ranked product ID.
+ *  4. If scoredProducts is empty → return null.
+ */
+export function resolveEffectiveSelectedId(
+  selectedProductId: string | null,
+  scoredProducts: ScoredProduct[]
+): string | null {
+  if (scoredProducts.length === 0) return null;
+
+  if (
+    selectedProductId !== null &&
+    scoredProducts.some((sp) => sp.product.id === selectedProductId)
+  ) {
+    return selectedProductId;
+  }
+
+  return scoredProducts[0].product.id;
+}
+
 // --- Query Summary Builder ---
 
 function buildQuerySummary(
