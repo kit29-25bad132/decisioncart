@@ -95,7 +95,7 @@ export function CheckoutReadiness({
   onProceedToCheckout,
 }: CheckoutReadinessProps) {
   const [status, setStatus] = useState<
-    "idle" | "creating" | "verifying" | "success" | "error"
+    "idle" | "creating" | "opening" | "verifying" | "success" | "error"
   >("idle");
 
   const [errorMessage, setErrorMessage] = useState("");
@@ -205,7 +205,7 @@ export function CheckoutReadiness({
         modal: {
           ondismiss: () => {
             setStatus((currentStatus) =>
-              currentStatus === "creating" ? "idle" : currentStatus
+              currentStatus === "opening" || currentStatus === "creating" ? "idle" : currentStatus
             );
           },
         },
@@ -217,7 +217,7 @@ export function CheckoutReadiness({
 
       const razorpay = new window.Razorpay(options);
 
-      setStatus("idle");
+      setStatus("opening");
 
       razorpay.open();
     } catch (error: unknown) {
@@ -239,7 +239,7 @@ export function CheckoutReadiness({
       <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
         {/* Header */}
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-50 mb-4">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-50 mb-4 border border-emerald-100">
             <svg
               className="w-7 h-7 text-emerald-600"
               fill="none"
@@ -265,7 +265,7 @@ export function CheckoutReadiness({
 
         {/* Product Summary */}
         <div className="bg-zinc-50 rounded-xl p-4 mb-4">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
             Product Summary
           </p>
           <div className="flex items-start justify-between">
@@ -285,14 +285,14 @@ export function CheckoutReadiness({
 
         {/* Decision Summary */}
         <div className="bg-zinc-50 rounded-xl p-4 mb-4">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
             Decision Summary
           </p>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-medium text-zinc-500">
               Decision Confidence
             </span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 text-xs font-semibold text-zinc-700">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 text-xs font-semibold text-zinc-700 border border-zinc-200">
               {confidence.score}%
             </span>
           </div>
@@ -304,7 +304,7 @@ export function CheckoutReadiness({
 
         {/* Payment Status */}
         <div className="bg-zinc-50 rounded-xl p-4 mb-4">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
             Payment Status
           </p>
           <div className="flex items-center gap-2">
@@ -329,10 +329,10 @@ export function CheckoutReadiness({
 
         {/* Payment References */}
         <div className="bg-zinc-50 rounded-xl p-4 mb-5">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
             Payment References
           </p>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-zinc-500 w-16 shrink-0">
                 Order ID
@@ -354,7 +354,7 @@ export function CheckoutReadiness({
 
         {/* Why This Decision Was Completed */}
         <div className="mb-5">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
             Why This Decision Was Completed
           </p>
           <ul className="space-y-2">
@@ -418,7 +418,7 @@ export function CheckoutReadiness({
         {/* Return Button */}
         <button
           onClick={handleReturnToDecision}
-          className="w-full px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-all shadow-sm"
+          className="w-full px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm"
         >
           Make Another Decision
         </button>
@@ -428,15 +428,33 @@ export function CheckoutReadiness({
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+      {/* Pre-purchase decision summary */}
+      <div className="mb-4 pb-4 border-b border-zinc-100">
+        <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          Your Decision
+        </p>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-zinc-900 truncate">
+              {product.name}
+            </p>
+            <p className="text-xs text-zinc-500">
+              {product.brand} · ₹{product.price.toLocaleString()}
+            </p>
+          </div>
+          <span className="text-xs font-mono font-semibold text-zinc-900 bg-zinc-50 px-2.5 py-1 rounded-full border border-zinc-100 shrink-0">
+            {confidence.score}% confidence
+          </span>
+        </div>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-zinc-900">
             Ready to purchase?
           </p>
-
           <p className="text-xs text-zinc-400 mt-0.5">
-            {product.name} · ₹{product.price.toLocaleString()} ·{" "}
-            {confidence.score}% confidence
+            Secure Razorpay checkout — server-side verified
           </p>
 
           {status === "error" && (
@@ -448,16 +466,18 @@ export function CheckoutReadiness({
 
         <button
           onClick={handleProceed}
-          disabled={status === "creating" || status === "verifying"}
-          className="px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2"
+          disabled={status === "creating" || status === "opening" || status === "verifying"}
+          className="px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2 whitespace-nowrap"
         >
           {status === "creating"
-            ? "Preparing Checkout..."
-            : status === "verifying"
-              ? "Verifying Payment..."
-              : "Proceed to Checkout"}
+            ? "Creating secure order..."
+            : status === "opening"
+              ? "Opening checkout..."
+              : status === "verifying"
+                ? "Verifying payment..."
+                : "Proceed with Confidence"}
 
-          {status !== "creating" && status !== "verifying" && (
+          {(status === "idle" || status === "error") && (
             <svg
               className="w-4 h-4"
               fill="none"
@@ -469,6 +489,28 @@ export function CheckoutReadiness({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 d="M13 7l5 5m0 0l-5 5m5-5H6"
+              />
+            </svg>
+          )}
+
+          {(status === "creating" || status === "opening" || status === "verifying") && (
+            <svg
+              className="animate-spin h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
               />
             </svg>
           )}

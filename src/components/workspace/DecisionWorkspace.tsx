@@ -121,14 +121,10 @@ export function DecisionWorkspace() {
   );
 
   // --- Purchase Selection Validation ---
-  // INVARIANT: purchaseProductId must always be null or in current scoredProducts.
   const validatedPurchaseId = useMemo(
     () => validatePurchaseSelection(purchaseProductId, result.scoredProducts),
     [purchaseProductId, result.scoredProducts]
   );
-
-  // Clear checkout request when purchase selection becomes invalid
-  // CheckoutReadiness manages its own internal checkout state
 
   // Auto-select top product for inspection
   const effectiveSelectedId =
@@ -205,13 +201,7 @@ export function DecisionWorkspace() {
         setBudget(intent.budget);
       }
 
-      // Use priorities directly from the parse result.
-      // The parse dispatcher (parseShoppingQuery) already handles refinement
-      // merging, so returned priorities reflect the effective preference state.
       setPriorities(intent.priorities);
-
-      // Constraints: the merge logic in parseShoppingQuery already handles
-      // preserving existing constraints during refinement.
       setConstraints(intent.constraints);
 
       // Update Decision Insight Panel state
@@ -221,7 +211,7 @@ export function DecisionWorkspace() {
 
       // Reset inspection selection
       setSelectedProductId(null);
-      // Reset purchase selection (new query may change results)
+      // Reset purchase selection
       setPurchaseProductId(null);
     },
     []
@@ -238,9 +228,6 @@ export function DecisionWorkspace() {
         }
         return [...prev, { attributeKey, importance }];
       });
-      // NOTE: Priority changes do NOT automatically invalidate purchase selection
-      // if the product remains eligible. This is intentional per spec.
-      // The validatedPurchaseId useMemo handles eligibility check.
     },
     []
   );
@@ -282,7 +269,6 @@ export function DecisionWorkspace() {
           setBudget((prev) => ({ ...prev, min: suggestion.suggestedValue }));
         }
       } else if (suggestion.type === "constraint" && suggestion.attributeKey && suggestion.suggestedValue !== undefined && suggestion.operator) {
-        // Constraint suggestion — update the constraint
         setConstraints((prev) => {
           const existing = prev.find(
             (c) => c.attributeKey === suggestion.attributeKey
@@ -313,7 +299,7 @@ export function DecisionWorkspace() {
     <div className="min-h-screen bg-zinc-50">
       <Header categoryLabel={categoryConfig.label} />
 
-      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-8">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
         {/* AI Query Input */}
         <div className="mb-6">
           <AIQueryInput
@@ -340,7 +326,7 @@ export function DecisionWorkspace() {
         )}
 
         {/* Toggle Manual Controls */}
-        <div className="mb-6">
+        <div className="mb-4">
           <button
             onClick={() => setShowManualControls(!showManualControls)}
             className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors flex items-center gap-1.5"
@@ -479,7 +465,7 @@ export function DecisionWorkspace() {
               <div className="flex justify-center">
                 <button
                   onClick={() => setShowComparison(!showComparison)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-zinc-200 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:text-zinc-900 transition-all shadow-sm"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-zinc-200 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:text-zinc-900 hover:shadow-sm transition-all shadow-sm"
                 >
                   <svg
                     className="w-4 h-4"

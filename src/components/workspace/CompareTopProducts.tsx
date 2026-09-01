@@ -46,7 +46,7 @@ export function CompareTopProducts({
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-        <h2 className="text-sm font-medium text-zinc-400 mb-1 tracking-wide uppercase">
+        <h2 className="text-sm font-semibold text-zinc-800 mb-1">
           Compare Top Choices
         </h2>
         <p className="text-xs text-zinc-400 mb-5">
@@ -84,7 +84,7 @@ function ComparisonTable({ comparison }: { comparison: ComparisonResult }) {
       <table className="w-full text-sm min-w-[600px]">
         <thead>
           <tr className="border-b border-zinc-100">
-            <th className="text-left py-3 pr-4 text-xs font-medium text-zinc-400 uppercase tracking-wide sticky left-0 bg-white z-10 min-w-[140px]">
+            <th className="text-left py-3 pr-4 text-[10px] font-medium text-zinc-400 uppercase tracking-wider sticky left-0 bg-white z-10 min-w-[140px]">
               Attribute
             </th>
             {products.map((p, i) => (
@@ -100,7 +100,7 @@ function ComparisonTable({ comparison }: { comparison: ComparisonResult }) {
                       size="sm"
                     />
                     <span
-                      className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center ${
+                      className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${
                         i === 0
                           ? "bg-zinc-900 text-white"
                           : "bg-zinc-100 text-zinc-600"
@@ -123,7 +123,7 @@ function ComparisonTable({ comparison }: { comparison: ComparisonResult }) {
         <tbody>
           {/* Price row */}
           <tr className="border-b border-zinc-50">
-            <td className="py-3 pr-4 text-xs font-medium text-zinc-500 sticky left-0 bg-white z-10">
+            <td className="py-3 pr-4 text-[10px] font-medium text-zinc-400 uppercase tracking-wider sticky left-0 bg-white z-10">
               Price
             </td>
             {products.map((p) => (
@@ -137,7 +137,7 @@ function ComparisonTable({ comparison }: { comparison: ComparisonResult }) {
 
           {/* Score row */}
           <tr className="border-b border-zinc-50">
-            <td className="py-3 pr-4 text-xs font-medium text-zinc-500 sticky left-0 bg-white z-10">
+            <td className="py-3 pr-4 text-[10px] font-medium text-zinc-400 uppercase tracking-wider sticky left-0 bg-white z-10">
               Decision Score
             </td>
             {products.map((p) => (
@@ -266,22 +266,25 @@ function WhySection({ comparison }: { comparison: ComparisonResult }) {
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-4 tracking-wide uppercase">
+      <h2 className="text-sm font-semibold text-zinc-800 mb-5">
         Why This Ranking?
       </h2>
 
       {/* Winner */}
       <div className="mb-5">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="w-5 h-5 rounded-full bg-zinc-900 text-white text-xs font-bold flex items-center justify-center">
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-zinc-900 text-white text-[10px] font-bold">
             1
-          </span>
-          <span className="text-sm font-medium text-zinc-900">
+          </div>
+          <span className="text-sm font-semibold text-zinc-900">
             {winner.product.name}
           </span>
           <span className="text-xs text-zinc-400">wins</span>
+          <span className="text-xs font-mono text-zinc-400 ml-auto">
+            {winner.score}/100
+          </span>
         </div>
-        <ul className="ml-7 space-y-1.5">
+        <ul className="ml-8.5 space-y-2">
           {whyWinnerWins.reasons.map((reason, i) => (
             <li key={i} className="flex items-start gap-2 text-sm text-zinc-600">
               <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>
@@ -293,17 +296,20 @@ function WhySection({ comparison }: { comparison: ComparisonResult }) {
 
       {/* Alternatives */}
       {runnerUp && whyChooseAlternatives[runnerUp.product.id] && (
-        <div className="border-t border-zinc-100 pt-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-600 text-xs font-bold flex items-center justify-center">
+        <div className="border-t border-zinc-100 pt-5">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-zinc-100 text-zinc-600 text-[10px] font-bold">
               2
-            </span>
-            <span className="text-sm font-medium text-zinc-900">
+            </div>
+            <span className="text-sm font-semibold text-zinc-900">
               {runnerUp.product.name}
             </span>
             <span className="text-xs text-zinc-400">— why you might choose this</span>
+            <span className="text-xs font-mono text-zinc-400 ml-auto">
+              {runnerUp.score}/100
+            </span>
           </div>
-          <ul className="ml-7 space-y-1.5">
+          <ul className="ml-8.5 space-y-2">
             {whyChooseAlternatives[runnerUp.product.id].reasons.map(
               (reason, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-zinc-600">
@@ -324,18 +330,31 @@ function WhySection({ comparison }: { comparison: ComparisonResult }) {
 function BestForSection({ comparison }: { comparison: ComparisonResult }) {
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-4 tracking-wide uppercase">
+      <h2 className="text-sm font-semibold text-zinc-800 mb-4">
         Best For
       </h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {comparison.bestForInsights.map((insight) => (
+        {comparison.bestForInsights.map((insight, i) => (
           <div
             key={insight.productId}
-            className="p-4 rounded-xl border border-zinc-100"
+            className={`p-4 rounded-xl border ${
+              i === 0 ? "border-zinc-900 bg-zinc-50" : "border-zinc-100"
+            }`}
           >
-            <p className="text-sm font-medium text-zinc-900 mb-1">
-              {insight.productName}
-            </p>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span
+                className={`w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center ${
+                  i === 0
+                    ? "bg-zinc-900 text-white"
+                    : "bg-zinc-100 text-zinc-600"
+                }`}
+              >
+                {i + 1}
+              </span>
+              <p className="text-sm font-medium text-zinc-900">
+                {insight.productName}
+              </p>
+            </div>
             <p className="text-xs text-zinc-500">{insight.insight}</p>
           </div>
         ))}
@@ -353,7 +372,7 @@ function DecisionInsightSection({
 }) {
   return (
     <div className="bg-zinc-900 rounded-2xl p-6 text-white">
-      <h2 className="text-xs font-medium text-zinc-400 mb-3 tracking-wide uppercase">
+      <h2 className="text-[11px] font-medium text-zinc-400 mb-3 uppercase tracking-wider">
         DecisionCart Insight
       </h2>
       <p className="text-sm text-zinc-200 leading-relaxed">
@@ -372,7 +391,7 @@ function PrioritySensitivitySection({
 }) {
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-1 tracking-wide uppercase">
+      <h2 className="text-sm font-semibold text-zinc-800 mb-1">
         What If Your Priorities Change?
       </h2>
       <p className="text-xs text-zinc-400 mb-4">
@@ -382,9 +401,9 @@ function PrioritySensitivitySection({
         {comparison.prioritySensitivity.map((item) => (
           <div
             key={item.attributeKey}
-            className="flex items-center gap-3 p-3 rounded-xl bg-zinc-50 border border-zinc-100"
+            className="flex items-center gap-3 p-3 rounded-xl bg-zinc-50 border border-zinc-100 hover:border-zinc-200 transition-colors"
           >
-            <span className="text-sm">{getAttrEmoji(item.attributeKey)}</span>
+            <span className="text-lg">{getAttrEmoji(item.attributeKey)}</span>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-zinc-500">
                 If <span className="font-medium text-zinc-700">{item.attributeLabel}</span> is most important

@@ -9,8 +9,8 @@ export default function GlobalError({
 }) {
   return (
     <html lang="en">
-      <body>
-        <div style={{ padding: "2rem", textAlign: "center" }}>
+      <body style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
+        <div style={{ padding: "2rem", textAlign: "center", maxWidth: "28rem", margin: "0 auto" }}>
           <h2 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1rem" }}>
             Something went wrong
           </h2>
@@ -24,9 +24,10 @@ export default function GlobalError({
               backgroundColor: "#18181b",
               color: "white",
               border: "none",
-              borderRadius: "0.5rem",
+              borderRadius: "0.75rem",
               cursor: "pointer",
               fontSize: "0.875rem",
+              fontWeight: 500,
             }}
           >
             Try again

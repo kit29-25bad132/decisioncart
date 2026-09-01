@@ -27,7 +27,7 @@ export function TradeOffSection({ tradeOffs }: TradeOffSectionProps) {
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-1 tracking-wide uppercase">
+      <h2 className="text-sm font-semibold text-zinc-800 mb-1">
         Trade-Off Analysis
       </h2>
       <p className="text-xs text-zinc-400 mb-5">
@@ -40,19 +40,19 @@ export function TradeOffSection({ tradeOffs }: TradeOffSectionProps) {
           return (
             <div
               key={to.criterionKey}
-              className="p-4 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-colors"
+              className="p-4 rounded-xl border border-zinc-100 hover:border-zinc-200 hover:shadow-sm transition-all"
             >
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2.5 mb-2.5">
                 <span className="text-lg">{icon}</span>
-                <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
+                <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
                   Best {to.criterionLabel}
                 </span>
               </div>
               <p className="font-medium text-zinc-900 text-sm mb-1">
                 {to.winnerProductName}
               </p>
-              <p className="text-xs text-zinc-400">
-                Score: {to.score}/100 in this criterion
+              <p className="text-xs text-zinc-400 font-mono">
+                {to.score}/100 normalized
               </p>
             </div>
           );

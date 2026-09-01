@@ -55,7 +55,7 @@ export function DecisionSummary({
       {/* Header */}
       <div className="bg-zinc-900 px-6 py-4 flex items-center justify-between">
         <div>
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
             Your Decision
           </p>
           <h3 className="text-lg font-semibold text-white mt-0.5">
@@ -64,7 +64,7 @@ export function DecisionSummary({
         </div>
         <button
           onClick={onDeselect}
-          className="text-xs text-zinc-400 hover:text-white transition-colors px-3 py-1 rounded-lg border border-zinc-700 hover:border-zinc-500"
+          className="text-xs text-zinc-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-zinc-500"
         >
           Change
         </button>
@@ -73,25 +73,25 @@ export function DecisionSummary({
       <div className="p-6 space-y-6">
         {/* Product Details */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs text-zinc-400 mb-1">Brand</p>
-            <p className="text-sm font-medium text-zinc-900">{product.brand}</p>
+          <div className="bg-zinc-50 rounded-xl p-3">
+            <p className="text-[10px] text-zinc-400 mb-1 uppercase tracking-wider">Brand</p>
+            <p className="text-sm font-semibold text-zinc-900">{product.brand}</p>
           </div>
-          <div>
-            <p className="text-xs text-zinc-400 mb-1">Price</p>
-            <p className="text-sm font-medium text-zinc-900">
+          <div className="bg-zinc-50 rounded-xl p-3">
+            <p className="text-[10px] text-zinc-400 mb-1 uppercase tracking-wider">Price</p>
+            <p className="text-sm font-semibold text-zinc-900">
               ₹{product.price.toLocaleString()}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-zinc-400 mb-1">Decision Score</p>
-            <p className="text-sm font-medium text-zinc-900">
+          <div className="bg-zinc-50 rounded-xl p-3">
+            <p className="text-[10px] text-zinc-400 mb-1 uppercase tracking-wider">Score</p>
+            <p className="text-sm font-semibold text-zinc-900">
               {totalScore}/100
             </p>
           </div>
-          <div>
-            <p className="text-xs text-zinc-400 mb-1">Rank</p>
-            <p className="text-sm font-medium text-zinc-900">
+          <div className="bg-zinc-50 rounded-xl p-3">
+            <p className="text-[10px] text-zinc-400 mb-1 uppercase tracking-wider">Rank</p>
+            <p className="text-sm font-semibold text-zinc-900">
               #{rank}
             </p>
           </div>
@@ -99,7 +99,7 @@ export function DecisionSummary({
 
         {/* Decision Confidence */}
         <div>
-          <p className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+          <p className="text-[11px] font-medium text-zinc-400 mb-3 uppercase tracking-wider">
             Decision Confidence
           </p>
           <div className="flex items-center gap-4">
@@ -146,7 +146,7 @@ export function DecisionSummary({
         {/* Why This Matches */}
         {whyMatches.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+            <p className="text-[11px] font-medium text-zinc-400 mb-3 uppercase tracking-wider">
               Why this matches you
             </p>
             <ul className="space-y-2">
@@ -163,7 +163,7 @@ export function DecisionSummary({
         {/* Trade-offs */}
         {tradeOffNotes.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+            <p className="text-[11px] font-medium text-zinc-400 mb-3 uppercase tracking-wider">
               Trade-offs
             </p>
             <ul className="space-y-2">

@@ -22,7 +22,7 @@ export function EmptyResultPanel({
       {/* Header */}
       <div className="bg-white rounded-2xl border border-zinc-200 p-8 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="shrink-0 w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+          <div className="shrink-0 w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center border border-amber-100">
             <svg
               className="w-5 h-5 text-amber-600"
               fill="none"
@@ -48,14 +48,14 @@ export function EmptyResultPanel({
         {/* Failed Requirements */}
         {analysis.failedRequirements.length > 0 && (
           <div className="mt-6 pt-4 border-t border-zinc-100">
-            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-3">
+            <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-3">
               Your strict requirements
             </p>
             <div className="flex flex-wrap gap-2">
               {analysis.failedRequirements.map((req, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-medium"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-medium border border-red-100"
                 >
                   <svg
                     className="w-3 h-3 shrink-0"
@@ -83,7 +83,7 @@ export function EmptyResultPanel({
         {/* Why section */}
         {analysis.failedRequirements.length > 1 && (
           <div className="mt-4 pt-4 border-t border-zinc-100">
-            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">
+            <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
               Why no products matched
             </p>
             <div className="space-y-1.5">
@@ -102,7 +102,7 @@ export function EmptyResultPanel({
       {/* Relaxation Suggestions */}
       {analysis.suggestions.length > 0 && (
         <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-          <h3 className="text-sm font-medium text-zinc-900 mb-4">
+          <h3 className="text-sm font-semibold text-zinc-800 mb-4">
             Try one of these adjustments
           </h3>
           <div className="space-y-3">
@@ -120,7 +120,7 @@ export function EmptyResultPanel({
       {/* Closest Matches */}
       {analysis.closestMatches.length > 0 && (
         <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-          <h3 className="text-sm font-medium text-zinc-900 mb-4">
+          <h3 className="text-sm font-semibold text-zinc-800 mb-4">
             Closest Matches
           </h3>
           <div className="space-y-3">
@@ -150,7 +150,7 @@ function SuggestionCard({
   return (
     <button
       onClick={() => onApply(suggestion)}
-      className="w-full text-left p-4 rounded-xl border border-zinc-100 hover:border-zinc-300 hover:bg-zinc-50 transition-all group"
+      className="w-full text-left p-4 rounded-xl border border-zinc-100 hover:border-zinc-300 hover:bg-zinc-50 hover:shadow-sm transition-all group"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -160,7 +160,7 @@ function SuggestionCard({
           <p className="text-xs text-zinc-500 mt-1">{suggestion.explanation}</p>
         </div>
         <div className="shrink-0 flex items-center gap-1.5">
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-100">
             +{suggestion.matchingProductCount}
           </span>
           <svg
@@ -229,12 +229,12 @@ function ClosestMatchCard({
       {/* Unmet details */}
       {match.unmetDetails.length > 0 && (
         <div className="mt-3 pt-3 border-t border-zinc-50">
-          <p className="text-xs text-zinc-400 mb-1">Missing:</p>
+          <p className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1">Missing:</p>
           <div className="flex flex-wrap gap-1.5">
             {match.unmetDetails.map((detail, i) => (
               <span
                 key={i}
-                className="inline-flex items-center px-2 py-0.5 rounded bg-zinc-50 text-zinc-600 text-xs"
+                className="inline-flex items-center px-2 py-0.5 rounded bg-zinc-50 text-zinc-600 text-[10px] font-medium border border-zinc-100"
               >
                 {detail.description}
               </span>

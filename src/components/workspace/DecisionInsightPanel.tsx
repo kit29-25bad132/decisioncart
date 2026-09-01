@@ -27,7 +27,7 @@ export function DecisionInsightPanel({
     const timers: NodeJS.Timeout[] = [];
     for (let i = 0; i < STEPS.length; i++) {
       timers.push(
-        setTimeout(() => setActiveStep(i + 1), 200 + i * 300)
+        setTimeout(() => setActiveStep(i + 1), 300 + i * 400)
       );
     }
     return () => timers.forEach(clearTimeout);
@@ -43,7 +43,7 @@ export function DecisionInsightPanel({
     });
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden animate-fade-in-up">
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-zinc-100">
         <div className="flex items-center gap-2.5 mb-1">
@@ -66,7 +66,7 @@ export function DecisionInsightPanel({
             DecisionCart understood your request
           </h3>
         </div>
-        <p className="text-xs text-zinc-400 mt-1 ml-7.5">
+        <p className="text-xs text-zinc-400 mt-1 ml-7.5 italic">
           &ldquo;{originalQuery}&rdquo;
         </p>
       </div>
@@ -103,7 +103,7 @@ export function DecisionInsightPanel({
                   {topPriorities.map((label) => (
                     <span
                       key={label}
-                      className="inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-50 border border-zinc-100 text-xs text-zinc-600 font-medium"
+                      className="inline-flex items-center px-2.5 py-1 rounded-md bg-zinc-50 border border-zinc-100 text-xs text-zinc-700 font-medium"
                     >
                       {label}
                     </span>
@@ -119,16 +119,19 @@ export function DecisionInsightPanel({
           <p className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-3">
             Processing
           </p>
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {STEPS.map((step, i) => {
               const done = activeStep > i;
+              const isCurrent = activeStep === i;
               return (
                 <div key={step} className="flex items-center gap-2.5">
                   <div
                     className={`w-4 h-4 rounded-full flex items-center justify-center transition-all duration-300 ${
                       done
                         ? "bg-emerald-500"
-                        : "bg-zinc-100 border border-zinc-200"
+                        : isCurrent
+                          ? "bg-emerald-200 border-2 border-emerald-400"
+                          : "bg-zinc-100 border border-zinc-200"
                     }`}
                   >
                     {done && (
@@ -149,7 +152,11 @@ export function DecisionInsightPanel({
                   </div>
                   <span
                     className={`text-xs transition-colors duration-300 ${
-                      done ? "text-zinc-700 font-medium" : "text-zinc-300"
+                      done
+                        ? "text-zinc-700 font-medium"
+                        : isCurrent
+                          ? "text-zinc-600"
+                          : "text-zinc-300"
                     }`}
                   >
                     {step}

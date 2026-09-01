@@ -31,7 +31,7 @@ export function PriorityControls({
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-1 tracking-wide uppercase">
+      <h2 className="text-sm font-semibold text-zinc-800 mb-1">
         Priority Controls
       </h2>
       <p className="text-xs text-zinc-400 mb-5">
@@ -44,13 +44,13 @@ export function PriorityControls({
           const impStyle = IMPORTANCE_LABELS[importance];
 
           return (
-            <div key={attr.key} className="group">
+            <div key={attr.key}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-zinc-700">
                   {attr.label}
                 </span>
                 <span
-                  className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${impStyle.color}`}
+                  className={`text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${impStyle.color}`}
                 >
                   {impStyle.label}
                 </span>

@@ -52,14 +52,18 @@ export function ExplanationPanel({
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-1 tracking-wide uppercase">
-        Why This Ranking?
-      </h2>
-      <p className="text-xs text-zinc-400 mb-5">
-        Transparent breakdown of how {scoredProduct.product.name} was scored
-      </p>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-800">
+            Why This Ranking?
+          </h2>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Transparent breakdown of how {scoredProduct.product.name} was scored
+          </p>
+        </div>
+      </div>
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         {sorted.map((c) => {
           const normPct = Math.round(c.normalizedValue * 100);
           const priorityLabel = userPriorityLabels[c.attributeKey] ?? "Low";
@@ -68,27 +72,29 @@ export function ExplanationPanel({
           return (
             <div
               key={c.attributeKey}
-              className="border-b border-zinc-50 pb-4 last:border-0 last:pb-0"
+              className="border-b border-zinc-50 pb-5 last:border-0 last:pb-0"
             >
               {/* Header: attribute name + contribution points */}
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-zinc-700">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-zinc-800">
                   {c.label}
                 </span>
-                <span className="text-xs font-mono text-zinc-500">
+                <span className="text-xs font-mono text-zinc-500 bg-zinc-50 px-2 py-0.5 rounded-md border border-zinc-100">
                   +{formatContributionPoints(c.contribution)} pts
                 </span>
               </div>
 
-              {/* Detail grid: priority, performance, normalized, weight */}
-              <div className="grid grid-cols-4 gap-3 text-xs">
-                <div>
-                  <p className="text-zinc-400 mb-0.5">Your Priority</p>
-                  <p className="font-medium text-zinc-700">{priorityLabel}</p>
+              {/* 4-Column Grid: Priority, Performance, Normalized, Decision Weight */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mb-3">
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-zinc-400 mb-0.5 text-[10px] uppercase tracking-wider">Decision Weight</p>
+                  <p className="font-semibold text-zinc-700">
+                    {formatWeightPercent(c.weight)}
+                  </p>
                 </div>
-                <div>
-                  <p className="text-zinc-400 mb-0.5">Performance</p>
-                  <p className="font-medium text-zinc-700">
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-zinc-400 mb-0.5 text-[10px] uppercase tracking-wider">Product Performance</p>
+                  <p className="font-semibold text-zinc-700">
                     {c.available
                       ? typeof c.rawValue === "number"
                         ? `${c.rawValue.toLocaleString()}${attrUnit ? ` ${attrUnit}` : ""}`
@@ -96,27 +102,25 @@ export function ExplanationPanel({
                       : "Unknown"}
                   </p>
                 </div>
-                <div>
-                  <p className="text-zinc-400 mb-0.5">Normalized</p>
-                  <p className="font-medium text-zinc-700">{normPct}/100</p>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-zinc-400 mb-0.5 text-[10px] uppercase tracking-wider">Normalized</p>
+                  <p className="font-semibold text-zinc-700">{normPct}/100</p>
                 </div>
-                <div>
-                  <p className="text-zinc-400 mb-0.5">Decision Weight</p>
-                  <p className="font-medium text-zinc-700">
-                    {formatWeightPercent(c.weight)}
-                  </p>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-zinc-400 mb-0.5 text-[10px] uppercase tracking-wider">Your Priority</p>
+                  <p className="font-semibold text-zinc-700">{priorityLabel}</p>
                 </div>
               </div>
 
               {/* Progress bar = normalized performance (clearly labeled) */}
-              <div className="mt-2">
-                <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-0.5">
-                  <span>Product performance</span>
-                  <span>{normPct}/100</span>
+              <div>
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+                  <span>Normalized performance</span>
+                  <span className="font-mono">{normPct}/100</span>
                 </div>
-                <div className="w-full bg-zinc-100 rounded-full h-1.5">
+                <div className="w-full bg-zinc-100 rounded-full h-1.5 overflow-hidden">
                   <div
-                    className="bg-zinc-800 h-1.5 rounded-full transition-all duration-500"
+                    className="bg-zinc-800 h-1.5 rounded-full animate-progress-fill"
                     style={{ width: `${normPct}%` }}
                   />
                 </div>
@@ -127,8 +131,8 @@ export function ExplanationPanel({
       </div>
 
       {/* Score Breakdown Summary */}
-      <div className="mt-6 pt-4 border-t border-zinc-100">
-        <p className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+      <div className="mt-6 pt-5 border-t border-zinc-100">
+        <p className="text-[11px] font-medium text-zinc-400 mb-3 uppercase tracking-wider">
           Score Breakdown
         </p>
         <div className="space-y-1.5">
@@ -146,9 +150,9 @@ export function ExplanationPanel({
               </div>
             );
           })}
-          <div className="flex items-center justify-between text-xs font-semibold pt-1.5 border-t border-zinc-100">
+          <div className="flex items-center justify-between text-xs font-semibold pt-2 border-t border-zinc-100">
             <span className="text-zinc-700">Final Decision Score</span>
-            <span className="font-mono text-zinc-900">
+            <span className="font-mono text-zinc-900 text-sm">
               {totalScore} / 100
             </span>
           </div>
@@ -159,7 +163,7 @@ export function ExplanationPanel({
       {onSelectForPurchase && (
         <div className="mt-6 pt-4 border-t border-zinc-100">
           {isPurchaseSelected ? (
-            <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 px-4 py-2.5 rounded-xl">
+            <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-100">
               <svg
                 className="w-4 h-4 shrink-0"
                 fill="none"
@@ -173,12 +177,12 @@ export function ExplanationPanel({
                   d="M5 13l4 4L19 7"
                 />
               </svg>
-              Selected for purchase
+              Selected for purchase — scroll down to proceed
             </div>
           ) : (
             <button
               onClick={() => onSelectForPurchase(product.id)}
-              className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-all shadow-sm"
+              className="w-full px-4 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm"
             >
               Select This Product
             </button>

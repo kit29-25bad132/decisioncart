@@ -20,13 +20,13 @@ export function QueryInput({
 }: QueryInputProps) {
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-      <h2 className="text-sm font-medium text-zinc-400 mb-4 tracking-wide uppercase">
-        Tell us what you&apos;re looking for
+      <h2 className="text-sm font-semibold text-zinc-800 mb-4">
+        Manual Controls
       </h2>
 
       {/* Category Selector */}
       <div className="mb-5">
-        <label className="block text-sm font-medium text-zinc-600 mb-2">
+        <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">
           Category
         </label>
         <div className="flex gap-2">
@@ -48,7 +48,7 @@ export function QueryInput({
 
       {/* Budget */}
       <div className="mb-5">
-        <label className="block text-sm font-medium text-zinc-600 mb-2">
+        <label className="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">
           Budget (₹)
         </label>
         <div className="flex items-center gap-3">
@@ -69,7 +69,7 @@ export function QueryInput({
 
       {/* Structured Summary */}
       <div className="bg-zinc-50 rounded-xl p-4 border border-zinc-100">
-        <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wide">
+        <p className="text-[10px] font-medium text-zinc-400 mb-2 uppercase tracking-wider">
           Search Criteria
         </p>
         <p className="text-sm text-zinc-700">

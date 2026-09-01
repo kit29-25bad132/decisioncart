@@ -29,28 +29,38 @@ export function BestMatchCard({ scoredProduct, attributes }: BestMatchCardProps)
   return (
     <div className="bg-white rounded-2xl border-2 border-zinc-900 p-6 shadow-lg relative overflow-hidden">
       {/* Badge */}
-      <div className="absolute top-0 right-0 bg-zinc-900 text-white text-xs font-semibold px-4 py-1.5 rounded-bl-xl">
+      <div className="absolute top-0 right-0 bg-zinc-900 text-white text-xs font-semibold px-4 py-1.5 rounded-bl-xl flex items-center gap-1.5">
+        <svg
+          className="w-3 h-3"
+          fill="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+        </svg>
         Best Match
       </div>
 
       <div className="pt-2">
         {/* Product Visual + Name */}
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-start gap-4 mb-4">
           <ProductVisual category={product.category} brand={product.brand} size="lg" />
-          <div>
-            <p className="text-xs font-medium text-zinc-400 mb-0.5">{product.brand}</p>
-            <h3 className="text-xl font-semibold text-zinc-900">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-zinc-400 mb-1">{product.brand}</p>
+            <h3 className="text-xl font-semibold text-zinc-900 leading-snug">
               {product.name}
             </h3>
           </div>
         </div>
 
         {/* Score & Price Row */}
-        <div className="flex items-baseline gap-4 mb-5">
-          <div>
-            <span className="text-3xl font-bold text-zinc-900">{totalScore}</span>
-            <span className="text-sm text-zinc-400 ml-1">/ 100</span>
+        <div className="flex items-baseline gap-5 mb-4">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-4xl font-bold text-zinc-900 tracking-tight animate-count-up">
+              {totalScore}
+            </span>
+            <span className="text-sm text-zinc-400 font-medium">/ 100</span>
           </div>
+          <div className="h-6 w-px bg-zinc-200" />
           <div className="text-lg font-semibold text-zinc-700">
             ₹{product.price.toLocaleString()}
           </div>
@@ -67,31 +77,33 @@ export function BestMatchCard({ scoredProduct, attributes }: BestMatchCardProps)
         {/* Why #1 — Compact Summary */}
         {topContributions.length > 0 && (
           <div className="mb-5">
-            <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wide">
+            <p className="text-[11px] font-medium text-zinc-400 mb-2.5 uppercase tracking-wider">
               Why it ranked first
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {topContributions.slice(0, 2).map((c, i) => {
                 return (
                   <div
                     key={c.attributeKey}
-                    className="flex items-center gap-2 text-sm"
+                    className="flex items-center gap-2.5 text-sm"
                   >
-                    <span className="text-zinc-400 text-xs font-mono w-4">
-                      {i + 1}.
+                    <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-600 text-[10px] font-bold flex items-center justify-center shrink-0">
+                      {i + 1}
                     </span>
                     <span className="text-zinc-700 font-medium">
                       {c.label}
                     </span>
+                    <span className="text-zinc-300 text-xs">·</span>
                     <span className="text-zinc-400 text-xs">
-                      — strongest contribution
+                      {Math.round(c.normalizedValue * 100)}% normalized
                     </span>
                   </div>
                 );
               })}
-              <p className="text-xs text-zinc-400 mt-1">
+              <p className="text-xs text-zinc-400 ml-7.5">
                 Decision weight: {Math.round(topContributions[0].weight * 100)}%
-                {' · '}Normalized: {Math.round(topContributions[0].normalizedValue * 100)}/100
+                {" · "}
+                Top contribution: +{(topContributions[0].contribution * 100).toFixed(1)} pts
               </p>
             </div>
           </div>
@@ -101,32 +113,38 @@ export function BestMatchCard({ scoredProduct, attributes }: BestMatchCardProps)
         <div className="grid grid-cols-2 gap-4">
           {strengths.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-emerald-600 mb-1">Strengths</p>
-              <ul className="text-sm text-zinc-600 space-y-0.5">
+              <p className="text-[11px] font-medium text-emerald-600 mb-1.5 uppercase tracking-wider">Strengths</p>
+              <ul className="text-sm text-zinc-600 space-y-1">
                 {strengths.map((s) => (
-                  <li key={s}>+ {s}</li>
+                  <li key={s} className="flex items-start gap-1.5">
+                    <span className="text-emerald-500 mt-0.5 shrink-0">+</span>
+                    {s}
+                  </li>
                 ))}
               </ul>
             </div>
           )}
           <div>
-              <p className="text-xs font-medium text-amber-600 mb-1">Trade-offs</p>
-              {weaknesses.length > 0 ? (
-                <ul className="text-sm text-zinc-600 space-y-0.5">
-                  {weaknesses.map((w) => (
-                    <li key={w}>− {w}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-zinc-400 italic">
-                  No significant trade-offs based on your current priorities.
-                </p>
-              )}
-            </div>
+            <p className="text-[11px] font-medium text-amber-600 mb-1.5 uppercase tracking-wider">Trade-offs</p>
+            {weaknesses.length > 0 ? (
+              <ul className="text-sm text-zinc-600 space-y-1">
+                {weaknesses.map((w) => (
+                  <li key={w} className="flex items-start gap-1.5">
+                    <span className="text-amber-500 mt-0.5 shrink-0">−</span>
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-zinc-400 italic">
+                No significant trade-offs based on your current priorities.
+              </p>
+            )}
+          </div>
         </div>
 
         {missingAttributes.length > 0 && (
-          <div className="mt-4 text-xs text-zinc-400">
+          <div className="mt-4 pt-3 border-t border-zinc-100 text-xs text-zinc-400">
             Missing data:{" "}
             {missingAttributes
               .map((attrKey: string) => {
