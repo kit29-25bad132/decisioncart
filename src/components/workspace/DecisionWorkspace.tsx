@@ -21,6 +21,7 @@ import { DecisionSummary } from "./DecisionSummary";
 import { CheckoutReadiness } from "./CheckoutReadiness";
 import { DecisionInsightPanel } from "./DecisionInsightPanel";
 import { EmptyResultPanel } from "./EmptyResultPanel";
+import { CompareTopProducts } from "./CompareTopProducts";
 
 const DEFAULT_BUDGET_MAX = 35000;
 const INITIAL_CATEGORIES = [
@@ -46,6 +47,7 @@ export function DecisionWorkspace() {
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [showManualControls, setShowManualControls] = useState(false);
+  const [showComparison, setShowComparison] = useState(false);
 
   // --- Phase 5A: Purchase Selection State ---
   const [purchaseProductId, setPurchaseProductId] = useState<string | null>(null);
@@ -469,6 +471,41 @@ export function DecisionWorkspace() {
                 scoredProduct={purchaseScored}
                 confidence={purchaseConfidence}
                 onProceedToCheckout={handleProceedToCheckout}
+              />
+            )}
+
+            {/* Compare Top Choices Toggle */}
+            {result.scoredProducts.length >= 2 && (
+              <div className="flex justify-center">
+                <button
+                  onClick={() => setShowComparison(!showComparison)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-zinc-200 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:text-zinc-900 transition-all shadow-sm"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  {showComparison ? "Hide" : "Compare"} Top {Math.min(result.scoredProducts.length, 3)}
+                </button>
+              </div>
+            )}
+
+            {/* Comparison Panel */}
+            {showComparison && result.scoredProducts.length >= 2 && (
+              <CompareTopProducts
+                scoredProducts={result.scoredProducts}
+                attributes={categoryConfig.attributes}
+                priorities={priorities}
+                budget={preference.budget}
               />
             )}
 

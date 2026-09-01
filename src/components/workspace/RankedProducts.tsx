@@ -1,6 +1,7 @@
 "use client";
 
 import type { ScoredProduct } from "@/types";
+import { ProductVisual } from "./ProductVisual";
 
 interface RankedProductsProps {
   scoredProducts: ScoredProduct[];
@@ -44,8 +45,10 @@ export function RankedProducts({
               }`}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <ProductVisual category={sp.product.category} brand={sp.product.brand} size="sm" className="mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
                     <span
                       className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                         isTop
@@ -74,6 +77,7 @@ export function RankedProducts({
                       Score: {sp.totalScore}
                     </span>
                   </div>
+                </div>
                 </div>
 
                 <div className="text-right shrink-0">

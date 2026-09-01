@@ -29,9 +29,13 @@ describe("budget filtering", () => {
     }
 
     // Verify Google Pixel 8a (₹37,999) is NOT in results
-    const pixelId = "google-pixel-8a";
-    const pixel = result.scoredProducts.find((sp) => sp.product.id === pixelId);
+    const pixel = result.scoredProducts.find((sp) => sp.product.id === "phone-002");
     expect(pixel).toBeUndefined();
+
+    // Confirm it exists in the original catalog (was excluded by budget)
+    const pixelInCatalog = catalog.find((p) => p.id === "phone-002");
+    expect(pixelInCatalog).toBeDefined();
+    expect(pixelInCatalog!.price).toBeGreaterThan(30000);
   });
 
   it("products under budget.min are excluded before scoring", () => {

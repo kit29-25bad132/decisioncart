@@ -1,6 +1,7 @@
 "use client";
 
 import type { ScoredProduct, AttributeConfig } from "@/types";
+import { ProductVisual } from "./ProductVisual";
 
 interface BestMatchCardProps {
   scoredProduct: ScoredProduct;
@@ -33,11 +34,16 @@ export function BestMatchCard({ scoredProduct, attributes }: BestMatchCardProps)
       </div>
 
       <div className="pt-2">
-        {/* Product Name */}
-        <p className="text-xs font-medium text-zinc-400 mb-1">{product.brand}</p>
-        <h3 className="text-xl font-semibold text-zinc-900 mb-3">
-          {product.name}
-        </h3>
+        {/* Product Visual + Name */}
+        <div className="flex items-center gap-3 mb-2">
+          <ProductVisual category={product.category} brand={product.brand} size="lg" />
+          <div>
+            <p className="text-xs font-medium text-zinc-400 mb-0.5">{product.brand}</p>
+            <h3 className="text-xl font-semibold text-zinc-900">
+              {product.name}
+            </h3>
+          </div>
+        </div>
 
         {/* Score & Price Row */}
         <div className="flex items-baseline gap-4 mb-5">
@@ -58,32 +64,35 @@ export function BestMatchCard({ scoredProduct, attributes }: BestMatchCardProps)
           Data confidence: {dataConfidence}
         </div>
 
-        {/* Why #1 */}
+        {/* Why #1 — Compact Summary */}
         {topContributions.length > 0 && (
           <div className="mb-5">
             <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wide">
               Why it ranked first
             </p>
-            <div className="space-y-2">
-              {topContributions.map((c) => {
-                const pct = Math.round(c.contribution * 100);
+            <div className="space-y-1.5">
+              {topContributions.slice(0, 2).map((c, i) => {
                 return (
-                  <div key={c.attributeKey}>
-                    <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="text-zinc-600">{c.label}</span>
-                      <span className="font-mono text-zinc-500 text-xs">
-                        {pct}% contribution
-                      </span>
-                    </div>
-                    <div className="w-full bg-zinc-100 rounded-full h-1.5">
-                      <div
-                        className="bg-zinc-900 h-1.5 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(c.normalizedValue * 100, 100)}%` }}
-                      />
-                    </div>
+                  <div
+                    key={c.attributeKey}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <span className="text-zinc-400 text-xs font-mono w-4">
+                      {i + 1}.
+                    </span>
+                    <span className="text-zinc-700 font-medium">
+                      {c.label}
+                    </span>
+                    <span className="text-zinc-400 text-xs">
+                      — strongest contribution
+                    </span>
                   </div>
                 );
               })}
+              <p className="text-xs text-zinc-400 mt-1">
+                Decision weight: {Math.round(topContributions[0].weight * 100)}%
+                {' · '}Normalized: {Math.round(topContributions[0].normalizedValue * 100)}/100
+              </p>
             </div>
           </div>
         )}
