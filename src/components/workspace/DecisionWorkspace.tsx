@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type { UserPreference, PriorityItem, Constraint, ParserSource, ConstraintRelaxationSuggestion } from "@/types";
+import type { AgentStep } from "@/agent/agent-types";
 import { runDecision, buildDecisionMatrix, resolveEffectiveSelectedId } from "@/engine/decision-engine";
 import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
 import { validatePurchaseSelection } from "@/engine/purchase-selection";
@@ -22,6 +23,7 @@ import { CheckoutReadiness } from "./CheckoutReadiness";
 import { DecisionInsightPanel } from "./DecisionInsightPanel";
 import { EmptyResultPanel } from "./EmptyResultPanel";
 import { CompareTopProducts } from "./CompareTopProducts";
+import { AgentTracePanel } from "./AgentTracePanel";
 
 const DEFAULT_BUDGET_MAX = 35000;
 const INITIAL_CATEGORIES = [
@@ -56,6 +58,11 @@ export function DecisionWorkspace() {
   const [hasParsedQuery, setHasParsedQuery] = useState(false);
   const [lastParserSource, setLastParserSource] = useState<ParserSource>("fallback");
   const [lastOriginalQuery, setLastOriginalQuery] = useState("");
+
+  // --- Agent Trace State ---
+  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  const [agentStatus, setAgentStatus] = useState<"running" | "completed" | "failed" | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   const categoryConfig = useMemo(() => {
     const result = resolveCategoryConfig(category);
@@ -201,6 +208,9 @@ export function DecisionWorkspace() {
       constraints: Constraint[];
       source: ParserSource;
       originalQuery: string;
+      agentSteps?: AgentStep[];
+      agentStatus?: "running" | "completed" | "failed";
+      agentError?: string;
     }) => {
       setCategory(intent.category);
 
@@ -215,6 +225,11 @@ export function DecisionWorkspace() {
       setHasParsedQuery(true);
       setLastParserSource(intent.source);
       setLastOriginalQuery(intent.originalQuery);
+
+      // Update Agent Trace state
+      setAgentSteps(intent.agentSteps ?? []);
+      setAgentStatus(intent.agentStatus ?? null);
+      setAgentError(intent.agentError ?? null);
 
       // Reset inspection selection
       setSelectedProductId(null);
@@ -328,6 +343,17 @@ export function DecisionWorkspace() {
               attributes={categoryConfig.attributes}
               parserSource={lastParserSource}
               originalQuery={lastOriginalQuery}
+            />
+          </div>
+        )}
+
+        {/* Agent Trace Panel */}
+        {agentSteps.length > 0 && agentStatus && (
+          <div className="mb-6">
+            <AgentTracePanel
+              steps={agentSteps}
+              status={agentStatus}
+              error={agentError ?? undefined}
             />
           </div>
         )}

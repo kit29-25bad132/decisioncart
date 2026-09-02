@@ -3,6 +3,15 @@
 import { useState, useCallback } from "react";
 import type { PriorityItem, Constraint } from "@/types";
 import type { AIParseResult } from "@/lib/ai/types";
+import type { AgentStep, AgentResult } from "@/agent/agent-types";
+
+/** Response from POST /api/agent/run */
+interface AgentRunResponse {
+  success: boolean;
+  source: "ai" | "fallback";
+  agentResult?: AgentResult;
+  error?: string;
+}
 
 interface AIQueryInputProps {
   currentCategory: string;
@@ -16,6 +25,9 @@ interface AIQueryInputProps {
     constraints: Constraint[];
     source: "ai" | "fallback";
     originalQuery: string;
+    agentSteps?: AgentStep[];
+    agentStatus?: "running" | "completed" | "failed";
+    agentError?: string;
   }) => void;
 }
 
@@ -43,7 +55,7 @@ export function AIQueryInput({
       setLastResult(null);
 
       try {
-        const response = await fetch("/api/decision/parse", {
+        const response = await fetch("/api/agent/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -62,22 +74,45 @@ export function AIQueryInput({
           throw new Error(`Request failed (${response.status})`);
         }
 
-        const result: AIParseResult = await response.json();
+        const agentResponse: AgentRunResponse = await response.json();
 
-        if (result.success && result.intent) {
-          setLastResult(result);
+        // The agent endpoint returns the parsed intent inside agentResult.parsedIntent
+        // but we need to reconstruct the AIParseResult for backward compatibility
+        const agentResult = agentResponse.agentResult;
+
+        if (agentResult && agentResult.parsedIntent) {
+          const parsedIntent = agentResult.parsedIntent;
+
+          // Build a compatible AIParseResult for the existing UI display
+          const parseResult: AIParseResult = {
+            success: agentResponse.success,
+            source: agentResponse.source,
+            intent: parsedIntent,
+            error: agentResponse.error,
+          };
+
+          setLastResult(parseResult);
           setQueryHistory((prev) => [...prev, trimmed]);
           onParsed({
-            category: result.intent.category,
-            budget: result.intent.budget,
-            priorities: result.intent.priorities,
-            constraints: result.intent.constraints,
-            source: result.source,
+            category: parsedIntent.category,
+            budget: parsedIntent.budget,
+            priorities: parsedIntent.priorities,
+            constraints: parsedIntent.constraints,
+            source: agentResponse.source,
             originalQuery: trimmed,
+            agentSteps: agentResult.steps,
+            agentStatus:
+              agentResult.status === "completed"
+                ? "completed"
+                : agentResult.status === "failed"
+                  ? "failed"
+                  : "running",
+            agentError: agentResult.error,
           });
           setQuery("");
         } else {
-          setError(result.error ?? "Failed to understand your query");
+          // Agent returned no parsed intent — this can happen on parse failure
+          setError(agentResponse.error ?? "Failed to understand your query");
         }
       } catch (err) {
         const message =
