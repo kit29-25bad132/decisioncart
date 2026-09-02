@@ -83,9 +83,16 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Execute the bounded agent pipeline
+    // Category precedence: parsed intent category is PRIMARY.
+    // currentCategory is only a fallback when the parser doesn't provide one.
+    const effectiveCategory =
+      parseResult.intent.category ??
+      (typeof currentCategory === "string" ? currentCategory : undefined);
+
     const agentResult = await runAgent({
       intent: parseResult.intent,
-      category: currentCategory,
+      category: effectiveCategory,
+      currentPreferences: context.currentPreferences,
     });
 
     // 6. Return structured response

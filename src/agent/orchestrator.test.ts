@@ -370,4 +370,42 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     expect(compareStep!.completedAt).toBeTypeOf("number");
     expect(compareStep!.completedAt!).toBeGreaterThanOrEqual(compareStep!.startedAt!);
   });
+
+  it("category: AgentInput.category overrides intent.category for catalog search", async () => {
+    fetchProductsMock.mockResolvedValue({
+      products: mockProducts,
+      provider: { id: "demo-catalog", label: "Demo Catalog" },
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+      metadata: { totalCount: 2 },
+    });
+
+    // Intent says smartphone, but AgentInput.category overrides to laptop
+    const intent = makeIntent({ category: "smartphone" });
+
+    const { runAgent } = await import("./orchestrator");
+    await runAgent(makeInput({ intent, category: "laptop" }));
+
+    // fetchProducts should have been called with category "laptop" (the override),
+    // not "smartphone" (the intent category)
+    const callArgs = fetchProductsMock.mock.calls[0] as [{ category?: string }];
+    expect(callArgs[0].category).toBe("laptop");
+  });
+
+  it("category: falls back to intent.category when AgentInput.category is undefined", async () => {
+    fetchProductsMock.mockResolvedValue({
+      products: mockProducts,
+      provider: { id: "demo-catalog", label: "Demo Catalog" },
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+      metadata: { totalCount: 2 },
+    });
+
+    const intent = makeIntent({ category: "laptop" });
+
+    const { runAgent } = await import("./orchestrator");
+    // No category override — should fall back to intent.category
+    await runAgent(makeInput({ intent }));
+
+    const callArgs = fetchProductsMock.mock.calls[0] as [{ category?: string }];
+    expect(callArgs[0].category).toBe("laptop");
+  });
 });
