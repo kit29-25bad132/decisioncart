@@ -5,6 +5,8 @@
 //
 // V1 UPDATE: Updates purchase state to PAID on successful
 // verification, then completes the purchase (DONE).
+// Does NOT return success if purchase state update fails.
+// Handles repeated verification after DONE safely.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,6 +19,12 @@ import { purchaseStore } from "@/engine/purchase-state-machine";
  * Verifies a Razorpay payment signature to confirm authenticity.
  * Uses HMAC SHA256 with the server-side secret key.
  * Updates purchase state on success.
+ *
+ * After signature validation:
+ * - Finds purchase by razorpay_order_id
+ * - Verifies purchase is in ORDER_CREATED state
+ * - Transitions ORDER_CREATED → PAID → DONE
+ * - Returns failure if state update fails
  */
 export async function POST(request: NextRequest) {
   try {
@@ -107,38 +115,70 @@ export async function POST(request: NextRequest) {
 
     const isValid = crypto.timingSafeEqual(receivedBuf, expectedBuf);
 
-    if (isValid) {
-      // --- 6. Update purchase state to PAID (V1) ---
-      // Find purchase by razorpay_order_id and update state
-      const allPurchases = purchaseStore.all();
-      const purchase = allPurchases.find(
-        (p) => p.razorpayOrderId === razorpay_order_id.trim()
+    if (!isValid) {
+      return NextResponse.json(
+        { success: false, message: "Payment verification failed." },
+        { status: 400 }
       );
+    }
 
-      if (purchase) {
-        try {
-          purchaseStore.setRazorpayPayment(
-            purchase.purchaseId,
-            razorpay_payment_id.trim()
-          );
-          // Complete the purchase
-          purchaseStore.complete(purchase.purchaseId);
-        } catch (err) {
-          console.error("Failed to update purchase state:", err);
-          // Verification still succeeds — state update is best-effort in V1
-        }
-      }
+    // --- 6. Signature valid — update purchase state ---
 
+    // Find purchase by razorpay_order_id
+    const allPurchases = purchaseStore.all();
+    const purchase = allPurchases.find(
+      (p) => p.razorpayOrderId === razorpay_order_id.trim()
+    );
+
+    if (!purchase) {
+      return NextResponse.json(
+        { success: false, message: "Payment verified but no purchase record found for this order." },
+        { status: 404 }
+      );
+    }
+
+    // Handle repeated verification after DONE — safe, return success
+    if (purchase.state === "DONE") {
       return NextResponse.json({
         success: true,
         message: "Payment verified successfully.",
       });
     }
 
-    return NextResponse.json(
-      { success: false, message: "Payment verification failed." },
-      { status: 400 }
-    );
+    // Verify purchase is in ORDER_CREATED state
+    if (purchase.state !== "ORDER_CREATED") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Payment verified but purchase is in an unexpected state: ${purchase.state}`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Transition ORDER_CREATED → PAID → DONE
+    // Do NOT swallow transition errors — return failure if state update fails
+    try {
+      purchaseStore.setRazorpayPayment(
+        purchase.purchaseId,
+        razorpay_payment_id.trim()
+      );
+      purchaseStore.complete(purchase.purchaseId);
+    } catch (err) {
+      console.error("Failed to update purchase state after payment verification:", err);
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Payment verified but failed to update purchase state. Please contact support.",
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Payment verified successfully.",
+    });
   } catch (error: unknown) {
     console.error("Payment verification error:", error);
     return NextResponse.json(

@@ -5,6 +5,8 @@
 //
 // V1 UPDATE: Requires an approved purchase record before creating
 // an order. Validates approval state, expiry, and product match.
+// Transitions APPROVED → ORDER_CREATED BEFORE creating the
+// Razorpay order to prevent duplicate order creation.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,6 +23,10 @@ import {
  * Creates a Razorpay order for a given product.
  * Requires a valid purchase record in APPROVED state.
  * The price is always read from the server-side catalog.
+ *
+ * Duplicate prevention: transitions APPROVED → ORDER_CREATED
+ * before creating the Razorpay order. If two concurrent requests
+ * try, only one will succeed on the transition.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -116,7 +122,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 7. Look up the product from the server-side catalog ---
+    // --- 7. Transition APPROVED → ORDER_CREATED BEFORE Razorpay ---
+    // This prevents duplicate order creation: only the first request
+    // to successfully transition will proceed to create the Razorpay order.
+    let purchaseRecord;
+    try {
+      purchaseRecord = purchaseStore.setRazorpayOrder(purchaseId.trim(), "pending");
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Purchase cannot be transitioned to ORDER_CREATED. Current state: ${purchase.state}`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // --- 8. Look up the product from the server-side catalog ---
     const catalog = getCatalog(category.trim());
     const product = catalog.find((p) => p.id === productId.trim());
 
@@ -127,44 +149,65 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 8. Convert INR price to paise ---
+    // --- 9. Convert INR price to paise ---
     // Razorpay expects amounts in the smallest currency unit (paise for INR).
     const amountInPaise = Math.round(product.price * 100);
 
-    // --- 9. Initialize Razorpay server-side ---
+    // --- 10. Initialize Razorpay server-side ---
     const razorpay = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
     });
 
-    // --- 10. Create the Razorpay order ---
-    const order = await razorpay.orders.create({
-      amount: amountInPaise,
-      currency: "INR",
-      receipt: `rcpt_${product.id}_${Date.now()}`,
-      notes: {
-        productId: product.id,
-        productName: product.name,
-        category: product.category,
-        purchaseId: purchase.purchaseId,
-      },
-    });
+    // --- 11. Create the Razorpay order ---
+    // The purchase is already in ORDER_CREATED state (step 7).
+    // If Razorpay fails, recover by transitioning to FAILED so the
+    // purchase record does not remain permanently stuck.
+    try {
+      const order = await razorpay.orders.create({
+        amount: amountInPaise,
+        currency: "INR",
+        receipt: `rcpt_${product.id}_${Date.now()}`,
+        notes: {
+          productId: product.id,
+          productName: product.name,
+          category: product.category,
+          purchaseId: purchaseRecord.purchaseId,
+        },
+      });
 
-    // --- 11. Update purchase state to ORDER_CREATED ---
-    purchaseStore.setRazorpayOrder(purchaseId.trim(), order.id);
+      // --- 12. Update purchase record with actual Razorpay order ID ---
+      purchaseRecord.razorpayOrderId = order.id;
+      purchaseRecord.updatedAt = Date.now();
 
-    // --- 12. Return safe response (no secrets exposed) ---
-    return NextResponse.json({
-      success: true,
-      order: {
-        id: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        productId: product.id,
-        productName: product.name,
-      },
-      keyId,
-    });
+      // --- 13. Return safe response (no secrets exposed) ---
+      return NextResponse.json({
+        success: true,
+        order: {
+          id: order.id,
+          amount: order.amount,
+          currency: order.currency,
+          productId: product.id,
+          productName: product.name,
+        },
+        keyId,
+      });
+    } catch (razorpayError: unknown) {
+      // Razorpay order creation failed. Transition ORDER_CREATED → FAILED
+      // so the purchase record does not remain permanently stuck.
+      // VALID_TRANSITIONS[ORDER_CREATED] includes FAILED.
+      try {
+        purchaseStore.fail(purchaseId.trim());
+      } catch (failError: unknown) {
+        // If even the FAIL transition fails, log but still return error.
+        console.error("Failed to transition purchase to FAILED state:", failError);
+      }
+      console.error("Failed to create Razorpay order:", razorpayError);
+      return NextResponse.json(
+        { success: false, error: "Failed to create payment order. Please try again." },
+        { status: 500 }
+      );
+    }
   } catch (error: unknown) {
     console.error("Failed to create Razorpay order:", error);
     return NextResponse.json(

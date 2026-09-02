@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { ScoredProduct, DecisionConfidence } from "@/types";
 import type { PurchaseState } from "@/engine/purchase-state-machine";
 import {
-  APPROVAL_EXPIRY_MS,
   approvalRemainingMs,
 } from "@/engine/purchase-state-machine";
 
@@ -12,6 +11,31 @@ import {
 interface VerifiedPaymentDetails {
   orderId: string;
   paymentId: string;
+}
+
+/** Server purchase creation response */
+interface PurchaseCreateResponse {
+  success: boolean;
+  purchaseId?: string;
+  state?: PurchaseState;
+  error?: string;
+}
+
+/** Server purchase confirmation response */
+interface PurchaseConfirmResponse {
+  success: boolean;
+  purchaseId?: string;
+  state?: PurchaseState;
+  error?: string;
+}
+
+/** Server purchase approval response */
+interface PurchaseApproveResponse {
+  success: boolean;
+  purchaseId?: string;
+  state?: PurchaseState;
+  expiresAt?: number;
+  error?: string;
 }
 
 interface CheckoutReadinessProps {
@@ -97,7 +121,9 @@ function loadRazorpayScript(): Promise<boolean> {
 
 type CheckoutStatus =
   | "idle"
+  | "creating_purchase"
   | "confirming"
+  | "approving"
   | "approved"
   | "creating"
   | "opening"
@@ -129,10 +155,10 @@ export function CheckoutReadiness({
   // --- Approval Expiry Timer ---
   const [approvalTimeRemaining, setApprovalTimeRemaining] = useState<number | null>(null);
   const approvalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const approvalCreatedAtRef = useRef<number | null>(null);
 
-  // --- Purchase ID (server-generated) ---
+  // --- Purchase state from server ---
   const purchaseIdRef = useRef<string | null>(null);
+  const approvalExpiresAtRef = useRef<number | null>(null);
 
   const { product } = scoredProduct;
 
@@ -147,26 +173,11 @@ export function CheckoutReadiness({
 
   // Check expiry and auto-expire
   useEffect(() => {
-    if (status !== "approved" || approvalCreatedAtRef.current === null) return;
+    if (status !== "approved" || approvalExpiresAtRef.current === null) return;
 
-    const remaining = approvalRemainingMs(approvalCreatedAtRef.current);
-    if (remaining <= 0) {
-      setStatus("error");
-      setErrorMessage("Approval has expired. Please approve again.");
-      setApprovalTimeRemaining(null);
-      if (approvalTimerRef.current) {
-        clearInterval(approvalTimerRef.current);
-        approvalTimerRef.current = null;
-      }
-      return;
-    }
-
-    setApprovalTimeRemaining(remaining);
-
-    approvalTimerRef.current = setInterval(() => {
+    const checkExpiry = () => {
       const now = Date.now();
-      const rem = approvalRemainingMs(approvalCreatedAtRef.current!, now);
-      if (rem <= 0) {
+      if (now >= approvalExpiresAtRef.current!) {
         setStatus("error");
         setErrorMessage("Approval has expired. Please approve again.");
         setApprovalTimeRemaining(null);
@@ -174,9 +185,16 @@ export function CheckoutReadiness({
           clearInterval(approvalTimerRef.current);
           approvalTimerRef.current = null;
         }
-        return;
+        return true;
       }
-      setApprovalTimeRemaining(rem);
+      setApprovalTimeRemaining(approvalExpiresAtRef.current! - now);
+      return false;
+    };
+
+    if (checkExpiry()) return;
+
+    approvalTimerRef.current = setInterval(() => {
+      checkExpiry();
     }, 1000);
 
     return () => {
@@ -193,28 +211,101 @@ export function CheckoutReadiness({
     setErrorMessage("");
     setApprovalTimeRemaining(null);
     purchaseIdRef.current = null;
-    approvalCreatedAtRef.current = null;
+    approvalExpiresAtRef.current = null;
   }
 
-  /** Step 1: User clicks "Proceed to Purchase" → CONFIRMING */
-  function handleProceedToConfirm() {
-    setStatus("confirming");
-    setErrorMessage("");
-    onProceedToCheckout();
-  }
-
-  /** Step 2: User clicks "Confirm Purchase" → APPROVED → create order */
-  const handleConfirmPurchase = useCallback(async () => {
+  /**
+   * Step 1: User clicks "Proceed to Purchase"
+   * Server creates purchase (DECIDED), then confirms (CONFIRMING),
+   * then the UI shows the confirmation dialog.
+   */
+  const handleProceedToConfirm = useCallback(async () => {
     try {
-      setStatus("approved");
+      setStatus("creating_purchase");
       setErrorMessage("");
 
-      // Record approval time for client-side expiry tracking
-      const now = Date.now();
-      approvalCreatedAtRef.current = now;
-      setApprovalTimeRemaining(APPROVAL_EXPIRY_MS);
+      // Server creates purchase in DECIDED state
+      const createRes = await fetch("/api/purchase/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: product.id,
+          category: product.category,
+        }),
+      });
 
-      // Create order on server — server validates approval state
+      const createData: PurchaseCreateResponse = await createRes.json();
+
+      if (!createRes.ok || !createData.success || !createData.purchaseId) {
+        throw new Error(createData.error || "Failed to create purchase.");
+      }
+
+      // Store server-generated purchaseId
+      purchaseIdRef.current = createData.purchaseId;
+
+      // Server transitions DECIDED → CONFIRMING
+      const confirmRes = await fetch("/api/purchase/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          purchaseId: createData.purchaseId,
+        }),
+      });
+
+      const confirmData: PurchaseConfirmResponse = await confirmRes.json();
+
+      if (!confirmRes.ok || !confirmData.success) {
+        throw new Error(confirmData.error || "Failed to confirm purchase.");
+      }
+
+      // Server confirmed → show confirmation UI
+      setStatus("confirming");
+      onProceedToCheckout();
+    } catch (error: unknown) {
+      console.error("Purchase creation failed:", error);
+      setStatus("error");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to start purchase. Please try again."
+      );
+    }
+  }, [product, onProceedToCheckout]);
+
+  /**
+   * Step 2: User clicks "Confirm Purchase"
+   * Server approves (CONFIRMING → APPROVED), then we create order.
+   */
+  const handleConfirmPurchase = useCallback(async () => {
+    try {
+      setStatus("approving");
+      setErrorMessage("");
+
+      if (!purchaseIdRef.current) {
+        throw new Error("No purchase ID available. Please start over.");
+      }
+
+      // Server transitions CONFIRMING → APPROVED with expiry
+      const approveRes = await fetch("/api/purchase/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          purchaseId: purchaseIdRef.current,
+        }),
+      });
+
+      const approveData: PurchaseApproveResponse = await approveRes.json();
+
+      if (!approveRes.ok || !approveData.success || !approveData.expiresAt) {
+        throw new Error(approveData.error || "Failed to approve purchase.");
+      }
+
+      // Server response is the source of truth for approval state
+      approvalExpiresAtRef.current = approveData.expiresAt;
+      setApprovalTimeRemaining(approveData.expiresAt - Date.now());
+      setStatus("approved");
+
+      // Load Razorpay SDK
       const razorpayLoaded = await loadRazorpayScript();
 
       if (!razorpayLoaded) {
@@ -223,16 +314,14 @@ export function CheckoutReadiness({
         );
       }
 
-      // Server creates purchase record + validates approval + creates Razorpay order
+      // Create Razorpay order (server validates purchase state + expiry)
       const orderResponse = await fetch("/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId: product.id,
           category: product.category,
-          // purchaseId will be managed server-side in production;
-          // for V1, server creates its own purchase record
-          purchaseId: purchaseIdRef.current ?? undefined,
+          purchaseId: purchaseIdRef.current,
         }),
       });
 
@@ -247,11 +336,6 @@ export function CheckoutReadiness({
         throw new Error(
           orderData.error || "Unable to create the payment order."
         );
-      }
-
-      // Store purchaseId for subsequent requests
-      if (orderData.purchaseId) {
-        purchaseIdRef.current = orderData.purchaseId;
       }
 
       const options: RazorpayOptions = {
@@ -335,7 +419,7 @@ export function CheckoutReadiness({
     setStatus("idle");
     setErrorMessage("");
     setApprovalTimeRemaining(null);
-    approvalCreatedAtRef.current = null;
+    approvalExpiresAtRef.current = null;
   }
 
   // --- UI States ---
@@ -612,6 +696,43 @@ export function CheckoutReadiness({
           >
             Confirm Purchase
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- CREATING PURCHASE / APPROVING: Loading states ---
+  if (status === "creating_purchase") {
+    return (
+      <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 mb-3 border border-blue-100">
+            <svg
+              className="animate-spin h-6 w-6 text-blue-600"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            Creating purchase...
+          </h3>
+          <p className="text-xs text-zinc-500 mt-1">
+            Setting up your purchase record on the server.
+          </p>
         </div>
       </div>
     );
