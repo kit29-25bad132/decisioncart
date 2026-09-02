@@ -124,6 +124,22 @@ export interface DecisionToolResult {
   error?: string;
 }
 
+// --- Product Comparison Result ---
+
+/** Typed result from the compare_products bounded tool. */
+export interface ProductComparisonResult {
+  /** Whether the tool execution succeeded. */
+  success: boolean;
+  /** The deterministic comparison data from the engine, when successful. */
+  comparison?: import("@/engine/compare-helpers").ComparisonResult;
+  /** Number of products compared. */
+  productCount: number;
+  /** Human-readable summary of the comparison output. */
+  outputSummary: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Agent Result ---
 
 /**
@@ -141,6 +157,8 @@ export interface AgentResult {
   catalogSearchResult?: CatalogSearchToolResult;
   /** Typed result from the decision runner tool, if executed. */
   decisionResult?: DecisionToolResult;
+  /** Typed result from the product comparison tool, if executed. */
+  comparisonResult?: ProductComparisonResult;
   /** Error message if the agent run failed. */
   error?: string;
 }

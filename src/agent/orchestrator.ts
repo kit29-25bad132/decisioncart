@@ -1,5 +1,5 @@
 // ============================================================
-// DecisionCart — Agent Orchestrator (Step 3: search_catalog + run_decision)
+// DecisionCart — Agent Orchestrator (Step 4: search_catalog + run_decision + compare_products)
 // Deterministic execution of bounded commerce tools.
 // No LLM-driven reasoning. No payment. No catalog mutation.
 // ============================================================
@@ -14,14 +14,14 @@ import type {
 import type { Product } from "@/types";
 import { executeCatalogSearch } from "./tools/catalog-search";
 import { executeDecisionRunner } from "./tools/decision-runner";
+import { executeProductComparison } from "./tools/product-comparison";
 
 // --- Deterministic Step Plan ---
 
 /**
  * Ordered list of tool steps for a standard commerce query.
  * This is the fixed execution plan — not decided by an LLM.
- * search_catalog and run_decision are executed in Steps 2–3;
- * compare_products remains pending (future step).
+ * All three tools are now executed in sequence.
  */
 interface StepPlanEntry {
   tool: AgentToolName;
@@ -52,11 +52,11 @@ function generateStepId(tool: AgentToolName): string {
 /**
  * Run the agent orchestrator.
  *
- * Step 3 implementation:
+ * Step 4 implementation:
  * - Creates a deterministic execution plan with observable step entries.
  * - Executes search_catalog via the bounded tool.
  * - If search_catalog succeeds, executes run_decision.
- * - compare_products remains pending (future step).
+ * - If run_decision succeeds, executes compare_products.
  * - Returns "completed" on full success, "failed" on any failure.
  */
 export async function runAgent(input: AgentInput): Promise<AgentResult> {
@@ -158,8 +158,9 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     input
   );
 
+  let decisionToolResult;
   try {
-    const decisionToolResult = await executeDecisionRunner({
+    decisionToolResult = await executeDecisionRunner({
       intent: input.intent,
       products: catalogResult.products,
       categoryOverride: input.category,
@@ -171,14 +172,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     if (decisionToolResult.success) {
       decisionStep.status = "completed";
       decisionStep.outputSummary = decisionToolResult.outputSummary;
-
-      return {
-        status: "completed",
-        parsedIntent: input.intent,
-        steps,
-        catalogSearchResult: catalogResult,
-        decisionResult: decisionToolResult,
-      };
     } else {
       decisionStep.status = "failed";
       decisionStep.error = decisionToolResult.error;
@@ -208,6 +201,81 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       parsedIntent: input.intent,
       steps,
       catalogSearchResult: catalogResult,
+      error: errorMessage,
+    };
+  }
+
+  // --- Execute compare_products ---
+
+  const comparisonStep = steps.find((s) => s.tool === "compare_products");
+
+  if (!comparisonStep) {
+    return {
+      status: "failed",
+      parsedIntent: input.intent,
+      steps,
+      catalogSearchResult: catalogResult,
+      decisionResult: decisionToolResult,
+      error: "Internal error: compare_products step not found in plan.",
+    };
+  }
+
+  // Transition: pending → running
+  comparisonStep.status = "running";
+  comparisonStep.startedAt = Date.now();
+  comparisonStep.inputSummary = buildComparisonInputSummary(decisionToolResult);
+
+  try {
+    const comparisonResult = await executeProductComparison({
+      decisionToolResult,
+    });
+
+    // Transition: running → completed or failed
+    comparisonStep.completedAt = Date.now();
+
+    if (comparisonResult.success) {
+      comparisonStep.status = "completed";
+      comparisonStep.outputSummary = comparisonResult.outputSummary;
+
+      return {
+        status: "completed",
+        parsedIntent: input.intent,
+        steps,
+        catalogSearchResult: catalogResult,
+        decisionResult: decisionToolResult,
+        comparisonResult,
+      };
+    } else {
+      comparisonStep.status = "failed";
+      comparisonStep.error = comparisonResult.error;
+      comparisonStep.outputSummary = comparisonResult.outputSummary;
+
+      return {
+        status: "failed",
+        parsedIntent: input.intent,
+        steps,
+        catalogSearchResult: catalogResult,
+        decisionResult: decisionToolResult,
+        comparisonResult,
+        error: comparisonResult.error,
+      };
+    }
+  } catch (err: unknown) {
+    // Unexpected error — should not happen since executeProductComparison catches internally
+    comparisonStep.completedAt = Date.now();
+    comparisonStep.status = "failed";
+
+    const errorMessage =
+      err instanceof Error ? err.message : "Unexpected comparison error";
+    comparisonStep.error = errorMessage;
+    comparisonStep.outputSummary = `Comparison failed: ${errorMessage}.`;
+
+    return {
+      status: "failed",
+      parsedIntent: input.intent,
+      steps,
+      catalogSearchResult: catalogResult,
+      decisionResult: decisionToolResult,
       error: errorMessage,
     };
   }
@@ -265,6 +333,26 @@ function buildDecisionInputSummary(
   parts.push(`${productCount} product${productCount === 1 ? "" : "s"}`);
 
   const category = input.category ?? input.intent.category;
+  if (category) {
+    parts.push(`category="${category}"`);
+  }
+
+  return parts.join(", ");
+}
+
+/**
+ * Build a brief input summary for the comparison step.
+ * No secrets — only observable metadata.
+ */
+function buildComparisonInputSummary(
+  decisionResult: import("./agent-types").DecisionToolResult
+): string {
+  const parts: string[] = [];
+
+  const scoredCount = decisionResult.decisionResult?.scoredProducts?.length ?? 0;
+  parts.push(`${scoredCount} scored product${scoredCount === 1 ? "" : "s"}`);
+
+  const category = decisionResult.effectiveCategory;
   if (category) {
     parts.push(`category="${category}"`);
   }

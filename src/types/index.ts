@@ -100,6 +100,12 @@ export interface DecisionResult {
   categoryLabel: string;
   /** Present only when zero products satisfy all requirements. */
   emptyResultAnalysis?: EmptyResultAnalysis;
+  /** Calculated weights used for scoring (stored for downstream comparison). */
+  weights?: Record<string, number>;
+  /** User priorities used for scoring (stored for downstream comparison). */
+  priorities?: PriorityItem[];
+  /** Budget constraints applied during filtering. */
+  budget?: { min?: number; max?: number };
 }
 
 // --- Decision Confidence ---

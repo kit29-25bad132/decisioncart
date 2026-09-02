@@ -473,6 +473,9 @@ export function runDecision(
       querySummary: buildQuerySummary(preference, categoryConfig),
       categoryLabel: categoryConfig.label,
       emptyResultAnalysis: emptyAnalysis,
+      weights: calculateWeights(preference.priorities, attributes),
+      priorities: preference.priorities,
+      budget: preference.budget,
     };
   }
 
@@ -532,6 +535,9 @@ export function runDecision(
     tradeOffs,
     querySummary,
     categoryLabel: categoryConfig.label,
+    weights,
+    priorities: preference.priorities,
+    budget: preference.budget,
   };
 }
 

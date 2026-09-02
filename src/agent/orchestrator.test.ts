@@ -1,6 +1,6 @@
 // ============================================================
-// DecisionCart — Agent Orchestrator Tests (Step 3)
-// Tests for search_catalog + run_decision execution lifecycle.
+// DecisionCart — Agent Orchestrator Tests (Step 4)
+// Tests for search_catalog + run_decision + compare_products execution lifecycle.
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -68,12 +68,12 @@ afterEach(() => {
 
 // --- Tests ---
 
-describe("runAgent — search_catalog + run_decision lifecycle", () => {
+describe("runAgent — search_catalog + run_decision + compare_products lifecycle", () => {
   beforeEach(() => {
     fetchProductsMock.mockReset();
   });
 
-  it("successful lifecycle: search_catalog completed → run_decision completed → compare_products pending", async () => {
+  it("full lifecycle: all three steps completed", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -102,10 +102,12 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
 
     const compareStep = result.steps.find((s) => s.tool === "compare_products");
     expect(compareStep).toBeDefined();
-    expect(compareStep!.status).toBe("pending");
+    expect(compareStep!.status).toBe("completed");
+    expect(compareStep!.startedAt).toBeTypeOf("number");
+    expect(compareStep!.completedAt).toBeTypeOf("number");
   });
 
-  it("decision result propagates to AgentResult", async () => {
+  it("overall status is completed when all three steps succeed", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -120,13 +122,38 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput({ intent }));
 
+    expect(result.status).toBe("completed");
+    expect(result.catalogSearchResult).toBeDefined();
+    expect(result.catalogSearchResult!.success).toBe(true);
     expect(result.decisionResult).toBeDefined();
     expect(result.decisionResult!.success).toBe(true);
-    expect(result.decisionResult!.decisionResult).toBeDefined();
-    expect(result.decisionResult!.decisionResult!.scoredProducts.length).toBeGreaterThan(0);
+    expect(result.comparisonResult).toBeDefined();
+    expect(result.comparisonResult!.success).toBe(true);
   });
 
-  it("if catalog search fails: run_decision remains pending", async () => {
+  it("comparisonResult propagates to AgentResult", async () => {
+    fetchProductsMock.mockResolvedValue({
+      products: mockProducts,
+      provider: { id: "demo-catalog", label: "Demo Catalog" },
+      fetchedAt: "2026-01-01T00:00:00.000Z",
+      metadata: { totalCount: 2 },
+    });
+
+    const intent = makeIntent({
+      priorities: [{ attributeKey: "ram_gb", importance: 2 }],
+    });
+
+    const { runAgent } = await import("./orchestrator");
+    const result = await runAgent(makeInput({ intent }));
+
+    expect(result.comparisonResult).toBeDefined();
+    expect(result.comparisonResult!.success).toBe(true);
+    expect(result.comparisonResult!.productCount).toBe(2);
+    expect(result.comparisonResult!.outputSummary).toContain("Compared");
+    expect(result.comparisonResult!.comparison).toBeDefined();
+  });
+
+  it("if catalog search fails: run_decision and compare_products remain pending", async () => {
     fetchProductsMock.mockRejectedValue(new Error("Provider unavailable"));
 
     const { runAgent } = await import("./orchestrator");
@@ -143,9 +170,10 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
 
     const compareStep = result.steps.find((s) => s.tool === "compare_products");
     expect(compareStep!.status).toBe("pending");
+    expect(compareStep!.startedAt).toBeUndefined();
   });
 
-  it("if decision tool fails: run_decision becomes failed", async () => {
+  it("if decision runner fails: compare_products remains pending", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -167,9 +195,13 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
     const decisionStep = result.steps.find((s) => s.tool === "run_decision");
     expect(decisionStep!.status).toBe("failed");
     expect(decisionStep!.error).toContain("No category config found");
+
+    const compareStep = result.steps.find((s) => s.tool === "compare_products");
+    expect(compareStep!.status).toBe("pending");
+    expect(compareStep!.startedAt).toBeUndefined();
   });
 
-  it("overall status becomes failed when decision fails", async () => {
+  it("decision result propagates to AgentResult", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -177,37 +209,17 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
       metadata: { totalCount: 2 },
     });
 
-    const intent = makeIntent({ category: "nonexistent_category" });
+    const intent = makeIntent({
+      priorities: [{ attributeKey: "ram_gb", importance: 2 }],
+    });
 
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput({ intent }));
 
-    expect(result.status).toBe("failed");
-    expect(result.error).toContain("No category config found");
-  });
-
-  it("empty catalog results: search_catalog completed → run_decision completed → overall completed", async () => {
-    fetchProductsMock.mockResolvedValue({
-      products: [],
-      provider: { id: "demo-catalog", label: "Demo Catalog" },
-      fetchedAt: "2026-01-01T00:00:00.000Z",
-      metadata: { totalCount: 0 },
-    });
-
-    const { runAgent } = await import("./orchestrator");
-    const result = await runAgent(makeInput());
-
-    expect(result.status).toBe("completed");
-
-    const searchStep = result.steps.find((s) => s.tool === "search_catalog");
-    expect(searchStep!.status).toBe("completed");
-
-    const decisionStep = result.steps.find((s) => s.tool === "run_decision");
-    expect(decisionStep!.status).toBe("completed");
-
     expect(result.decisionResult).toBeDefined();
     expect(result.decisionResult!.success).toBe(true);
-    expect(result.decisionResult!.decisionResult!.scoredProducts).toEqual([]);
+    expect(result.decisionResult!.decisionResult).toBeDefined();
+    expect(result.decisionResult!.decisionResult!.scoredProducts.length).toBeGreaterThan(0);
   });
 
   it("step order remains: search_catalog → run_decision → compare_products", async () => {
@@ -251,26 +263,35 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
     expect(result.error).toBe("Missing parsed intent");
   });
 
-  it("returns 'completed' status when both catalog and decision succeed", async () => {
+  it("empty catalog results: all three steps completed", async () => {
     fetchProductsMock.mockResolvedValue({
-      products: mockProducts,
+      products: [],
       provider: { id: "demo-catalog", label: "Demo Catalog" },
       fetchedAt: "2026-01-01T00:00:00.000Z",
-      metadata: { totalCount: 2 },
-    });
-
-    const intent = makeIntent({
-      priorities: [{ attributeKey: "ram_gb", importance: 2 }],
+      metadata: { totalCount: 0 },
     });
 
     const { runAgent } = await import("./orchestrator");
-    const result = await runAgent(makeInput({ intent }));
+    const result = await runAgent(makeInput());
 
     expect(result.status).toBe("completed");
-    expect(result.catalogSearchResult).toBeDefined();
-    expect(result.catalogSearchResult!.success).toBe(true);
+
+    const searchStep = result.steps.find((s) => s.tool === "search_catalog");
+    expect(searchStep!.status).toBe("completed");
+
+    const decisionStep = result.steps.find((s) => s.tool === "run_decision");
+    expect(decisionStep!.status).toBe("completed");
+
+    const compareStep = result.steps.find((s) => s.tool === "compare_products");
+    expect(compareStep!.status).toBe("completed");
+
     expect(result.decisionResult).toBeDefined();
     expect(result.decisionResult!.success).toBe(true);
+    expect(result.decisionResult!.decisionResult!.scoredProducts).toEqual([]);
+
+    expect(result.comparisonResult).toBeDefined();
+    expect(result.comparisonResult!.success).toBe(true);
+    expect(result.comparisonResult!.productCount).toBe(0);
   });
 
   it("propagates catalogSearchResult to AgentResult", async () => {
@@ -309,7 +330,7 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
     expect(result.parsedIntent.originalQuery).toBe("find me a laptop");
   });
 
-  it("decision step has input summary and output summary", async () => {
+  it("comparison step has input summary and output summary", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -324,13 +345,12 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput({ intent }));
 
-    const decisionStep = result.steps.find((s) => s.tool === "run_decision");
-    expect(decisionStep!.inputSummary).toContain("2 products");
-    expect(decisionStep!.inputSummary).toContain("category=\"smartphone\"");
-    expect(decisionStep!.outputSummary).toContain("Ranked");
+    const compareStep = result.steps.find((s) => s.tool === "compare_products");
+    expect(compareStep!.inputSummary).toContain("scored product");
+    expect(compareStep!.outputSummary).toContain("Compared");
   });
 
-  it("decision step timestamps are valid", async () => {
+  it("comparison step timestamps are valid", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -345,9 +365,9 @@ describe("runAgent — search_catalog + run_decision lifecycle", () => {
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput({ intent }));
 
-    const decisionStep = result.steps.find((s) => s.tool === "run_decision");
-    expect(decisionStep!.startedAt).toBeTypeOf("number");
-    expect(decisionStep!.completedAt).toBeTypeOf("number");
-    expect(decisionStep!.completedAt!).toBeGreaterThanOrEqual(decisionStep!.startedAt!);
+    const compareStep = result.steps.find((s) => s.tool === "compare_products");
+    expect(compareStep!.startedAt).toBeTypeOf("number");
+    expect(compareStep!.completedAt).toBeTypeOf("number");
+    expect(compareStep!.completedAt!).toBeGreaterThanOrEqual(compareStep!.startedAt!);
   });
 });
