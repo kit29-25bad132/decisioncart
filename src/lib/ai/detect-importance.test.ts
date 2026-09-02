@@ -36,20 +36,20 @@ describe("detectImportance: high-priority phrases", () => {
     expect(priority?.importance).toBe(3);
   });
 
-  it('"prioritize performance" returns importance 3', () => {
-    const intent = fallbackParse("prioritize performance", makeContext());
-    const ramPriority = intent.priorities.find(
-      (p) => p.attributeKey === "ram_gb"
+  it('"prioritize performance" returns importance 3 for processor_score (laptop)', () => {
+    const intent = fallbackParse("prioritize performance", makeContext("laptop"));
+    const processorPriority = intent.priorities.find(
+      (p) => p.attributeKey === "processor_score"
     );
-    expect(ramPriority?.importance).toBe(3);
+    expect(processorPriority?.importance).toBe(3);
   });
 
-  it('"prioritise performance" returns importance 3', () => {
-    const intent = fallbackParse("prioritise performance", makeContext());
-    const ramPriority = intent.priorities.find(
-      (p) => p.attributeKey === "ram_gb"
+  it('"prioritise performance" returns importance 3 for processor_score (laptop)', () => {
+    const intent = fallbackParse("prioritise performance", makeContext("laptop"));
+    const processorPriority = intent.priorities.find(
+      (p) => p.attributeKey === "processor_score"
     );
-    expect(ramPriority?.importance).toBe(3);
+    expect(processorPriority?.importance).toBe(3);
   });
 
   it('"must have a good camera" returns importance 3', () => {

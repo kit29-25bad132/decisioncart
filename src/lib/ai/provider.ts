@@ -240,9 +240,106 @@ function validateParsedIntent(
   };
 }
 
+// --- Gemini Provider ---
+
+class GeminiProvider implements AIProvider {
+  private apiKey: string;
+  private model: string;
+
+  constructor(apiKey: string, model: string) {
+    this.apiKey = apiKey;
+    this.model = model;
+  }
+
+  async parseShoppingQuery(
+    query: string,
+    categoryConfig: CategoryConfig,
+    availableCategories: CategoryConfig[]
+  ): Promise<AIParseResult> {
+    try {
+      const systemPrompt = buildSystemPrompt(
+        categoryConfig,
+        availableCategories
+      );
+
+      const endpoint =
+        `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: query }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0,
+            responseMimeType: "application/json",
+          },
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        return {
+          success: false,
+          source: "ai",
+          error: `Gemini API returned status ${response.status}`,
+        };
+      }
+
+      const data = await response.json();
+      const content =
+        data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!content) {
+        return {
+          success: false,
+          source: "ai",
+          error: "Gemini returned empty response",
+        };
+      }
+
+      const parsed = JSON.parse(content);
+      const intent = validateParsedIntent(
+        parsed,
+        categoryConfig,
+        availableCategories
+      );
+
+      if (!intent) {
+        return {
+          success: false,
+          source: "ai",
+          error: "Gemini returned invalid structured data",
+        };
+      }
+
+      return { success: true, source: "ai", intent };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unknown Gemini error";
+      return { success: false, source: "ai", error: message };
+    }
+  }
+}
+
 // --- Provider Factory ---
 
 let cachedProvider: AIProvider | null = null;
+
+/** Reset the cached provider. Exported for test-only use. */
+export function _resetProviderForTesting(): void {
+  cachedProvider = null;
+}
 
 export function getAIProvider(): AIProvider | null {
   if (cachedProvider) return cachedProvider;
@@ -256,6 +353,11 @@ export function getAIProvider(): AIProvider | null {
 
   if (provider === "openai") {
     cachedProvider = new OpenAIProvider(apiKey, model);
+    return cachedProvider;
+  }
+
+  if (provider === "gemini") {
+    cachedProvider = new GeminiProvider(apiKey, model);
     return cachedProvider;
   }
 

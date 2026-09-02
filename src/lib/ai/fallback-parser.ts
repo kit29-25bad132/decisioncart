@@ -23,13 +23,31 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   laptop: ["laptop", "notebook", "computer", "pc", "macbook"],
 };
 
+/**
+ * Check whether a query string matches a synonym using word-boundary regex.
+ * Prevents false substring matches (e.g. "ram" inside "camera").
+ * Multi-word phrases are joined with \s+ to allow flexible whitespace.
+ */
+function matchesSynonym(text: string, synonym: string): boolean {
+  // For multi-word phrases, use flexible whitespace between words
+  const escaped = synonym.replace(/([.*+?^${}()|[\]\\])/g, "\\$1");
+  const pattern = new RegExp(`(?:^|\\b)${escaped}(?:\\b|$)`, "i");
+  return pattern.test(text);
+}
+
 /** Maps natural language terms to attribute keys, per category. */
 function buildAttributeKeywordMap(
   categoryConfig: CategoryConfig
 ): Map<string, string[]> {
   const map = new Map<string, string[]>();
 
-  // Generic synonyms that apply across categories
+  // Generic synonyms that apply across categories.
+  // IMPORTANT: ambiguous terms like "performance", "speed", "fast" must NOT
+  // appear in multiple unrelated attribute synonym lists.
+  // Disambiguation:
+  //   - "RAM" / "memory" → ram_gb
+  //   - "processor" / "CPU" / "coding" / "programming" → processor_score
+  //   - "performance" / "speed" / "fast" → processor_score (default)
   const genericSynonyms: Record<string, string[]> = {
     camera_score: ["camera", "photo", "photography", "picture", "selfie"],
     battery_mah: ["battery", "battery life", "charge", "mah"],
@@ -39,9 +57,8 @@ function buildAttributeKeywordMap(
       "screen",
       "display size",
       "screen size",
-      "display size",
     ],
-    ram_gb: ["ram", "memory", "performance", "speed", "fast"],
+    ram_gb: ["ram", "memory"],
     processor_score: [
       "processor",
       "cpu",
@@ -399,10 +416,10 @@ function detectPriorities(
   const priorities: PriorityItem[] = [];
   const seen = new Set<string>();
 
-  // Check each attribute against the query
+  // Check each attribute against the query using word-boundary matching
   for (const [attrKey, synonyms] of attributeMap) {
     for (const synonym of synonyms) {
-      if (lower.includes(synonym)) {
+      if (matchesSynonym(lower, synonym)) {
         if (seen.has(attrKey)) continue;
         seen.add(attrKey);
 
@@ -432,7 +449,7 @@ function detectPriorities(
       const term = match[1].toLowerCase();
       for (const [attrKey, synonyms] of attributeMap) {
         if (
-          synonyms.some((s) => s.includes(term) || term.includes(s)) &&
+          synonyms.some((s) => matchesSynonym(term, s)) &&
           !seen.has(attrKey)
         ) {
           seen.add(attrKey);

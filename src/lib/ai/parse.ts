@@ -344,10 +344,22 @@ export function mergeWithCurrent(
 
     case "increase": {
       // "care more about camera" → boost that attribute
-      // Keep all current priorities, apply boosts from new intent.
+      // Only explicitly detected attributes should change.
       const increaseMap = new Map(
         newIntent.priorities.map((p) => [p.attributeKey, p.importance])
       );
+
+      // If no valid attributes were detected for this refinement
+      // (e.g., "camera" mentioned for laptop which has no camera attribute),
+      // preserve current preferences without applying any changes.
+      if (increaseMap.size === 0) {
+        merged.priorities = current.priorities;
+        merged.refinementMode = undefined; // No refinement applied
+        if (!newIntent.budget) {
+          merged.budget = current.budget;
+        }
+        break;
+      }
 
       merged.priorities = current.priorities.map((p) => {
         const boost = increaseMap.get(p.attributeKey);
@@ -378,6 +390,16 @@ export function mergeWithCurrent(
         newIntent.priorities.map((p) => [p.attributeKey, p.importance])
       );
 
+      // If no valid attributes were detected, preserve current preferences
+      if (decreaseMap.size === 0) {
+        merged.priorities = current.priorities;
+        merged.refinementMode = undefined;
+        if (!newIntent.budget) {
+          merged.budget = current.budget;
+        }
+        break;
+      }
+
       merged.priorities = current.priorities.map((p) => {
         const reduction = decreaseMap.get(p.attributeKey);
         if (reduction !== undefined) {
@@ -399,6 +421,16 @@ export function mergeWithCurrent(
       const ignoreKeys = new Set(
         newIntent.priorities.map((p) => p.attributeKey)
       );
+
+      // If no valid attributes were detected, preserve current preferences
+      if (ignoreKeys.size === 0) {
+        merged.priorities = current.priorities;
+        merged.refinementMode = undefined;
+        if (!newIntent.budget) {
+          merged.budget = current.budget;
+        }
+        break;
+      }
 
       merged.priorities = current.priorities.map((p) => {
         if (ignoreKeys.has(p.attributeKey)) {

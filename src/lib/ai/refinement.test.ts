@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { detectRefinementMode, mergeWithCurrent } from "./parse";
-import { detectRefinementMode as fallbackDetectRefinementMode } from "./fallback-parser";
+import { detectRefinementMode as fallbackDetectRefinementMode, fallbackParse } from "./fallback-parser";
 import { CATEGORY_CONFIGS } from "@/catalog/categories";
 import type { ParsedShoppingIntent } from "./types";
 
@@ -448,5 +448,216 @@ describe("Integration: refinement flows", () => {
   it("Flow 5: New query is NOT treated as refinement", () => {
     const mode = detectRefinementMode("Best laptop under 60000");
     expect(mode).toBe("normal");
+  });
+});
+
+// ============================================================
+// Category-Aware Preference Refinement Regression Tests
+// Ensures "I care more about X" never boosts unrelated attributes.
+// ============================================================
+
+const laptopCurrentPrefs = {
+  category: "laptop",
+  budget: { max: 60000 },
+  priorities: [
+    { attributeKey: "processor_score", importance: 2 },
+    { attributeKey: "ram_gb", importance: 2 },
+    { attributeKey: "battery_hours", importance: 2 },
+    { attributeKey: "display_inches", importance: 2 },
+    { attributeKey: "weight_kg", importance: 2 },
+    { attributeKey: "ssd_gb", importance: 2 },
+  ],
+};
+
+describe("Category-aware refinement: Smartphone", () => {
+  it("'I care more about camera' boosts camera_score to 3, others unchanged", () => {
+    const refinement = makeIntent({
+      category: "smartphone",
+      priorities: [{ attributeKey: "camera_score", importance: 3 }],
+    });
+
+    const merged = mergeWithCurrent(refinement, getCurrentPrefs(), smartphoneConfig, "increase");
+
+    const camera = merged.priorities.find((p) => p.attributeKey === "camera_score");
+    expect(camera?.importance).toBe(3);
+
+    // Other priorities unchanged
+    const battery = merged.priorities.find((p) => p.attributeKey === "battery_mah");
+    const display = merged.priorities.find((p) => p.attributeKey === "display_inches");
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(battery?.importance).toBe(2);
+    expect(display?.importance).toBe(2);
+    expect(ram?.importance).toBe(2);
+  });
+});
+
+describe("Category-aware refinement: Laptop — invalid attribute", () => {
+  it("'I care more about camera' does NOT boost processor_score or ram_gb (no priorities detected)", () => {
+    // When no valid attribute is detected for a refinement,
+    // mergeWithCurrent should preserve current priorities unchanged
+    // and clear the refinementMode since no refinement was applied.
+    const refinement = makeIntent({
+      category: "laptop",
+      priorities: [], // camera has no matching attribute in laptop
+    });
+
+    const merged = mergeWithCurrent(refinement, laptopCurrentPrefs, laptopConfig, "increase");
+
+    // processor_score and ram_gb MUST NOT become 3
+    const processor = merged.priorities.find((p) => p.attributeKey === "processor_score");
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(processor?.importance).toBe(2);
+    expect(ram?.importance).toBe(2);
+
+    // All laptop priorities remain unchanged
+    for (const p of merged.priorities) {
+      expect(p.importance).toBe(2);
+    }
+
+    // refinementMode should be cleared since no valid attribute was detected
+    expect(merged.refinementMode).toBeUndefined();
+  });
+});
+
+describe("Category-aware refinement: Explicit attribute detection", () => {
+  it("'I care more about processor' boosts processor_score only, RAM unchanged", () => {
+    const refinement = makeIntent({
+      category: "laptop",
+      priorities: [{ attributeKey: "processor_score", importance: 3 }],
+    });
+
+    const merged = mergeWithCurrent(refinement, laptopCurrentPrefs, laptopConfig, "increase");
+
+    const processor = merged.priorities.find((p) => p.attributeKey === "processor_score");
+    expect(processor?.importance).toBe(3);
+
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(ram?.importance).toBe(2);
+  });
+
+  it("'I care more about RAM' boosts ram_gb only, processor unchanged", () => {
+    const refinement = makeIntent({
+      category: "laptop",
+      priorities: [{ attributeKey: "ram_gb", importance: 3 }],
+    });
+
+    const merged = mergeWithCurrent(refinement, laptopCurrentPrefs, laptopConfig, "increase");
+
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(ram?.importance).toBe(3);
+
+    const processor = merged.priorities.find((p) => p.attributeKey === "processor_score");
+    expect(processor?.importance).toBe(2);
+  });
+
+  it("'I care more about battery' boosts battery_hours only (laptop)", () => {
+    const refinement = makeIntent({
+      category: "laptop",
+      priorities: [{ attributeKey: "battery_hours", importance: 3 }],
+    });
+
+    const merged = mergeWithCurrent(refinement, laptopCurrentPrefs, laptopConfig, "increase");
+
+    const battery = merged.priorities.find((p) => p.attributeKey === "battery_hours");
+    expect(battery?.importance).toBe(3);
+
+    // Other attributes unchanged
+    const processor = merged.priorities.find((p) => p.attributeKey === "processor_score");
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(processor?.importance).toBe(2);
+    expect(ram?.importance).toBe(2);
+  });
+});
+
+describe("Negative regression: ambiguous terms must not cross attributes", () => {
+  it("'performance' maps to processor_score, NOT ram_gb (laptop)", () => {
+    const refinement = makeIntent({
+      category: "laptop",
+      priorities: [{ attributeKey: "processor_score", importance: 3 }],
+    });
+
+    const merged = mergeWithCurrent(refinement, laptopCurrentPrefs, laptopConfig, "increase");
+
+    const processor = merged.priorities.find((p) => p.attributeKey === "processor_score");
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(processor?.importance).toBe(3);
+    expect(ram?.importance).toBe(2);
+  });
+
+  it("'speed' maps to processor_score, NOT ram_gb (laptop)", () => {
+    const refinement = makeIntent({
+      category: "laptop",
+      priorities: [{ attributeKey: "processor_score", importance: 3 }],
+    });
+
+    const merged = mergeWithCurrent(refinement, laptopCurrentPrefs, laptopConfig, "increase");
+
+    const processor = merged.priorities.find((p) => p.attributeKey === "processor_score");
+    const ram = merged.priorities.find((p) => p.attributeKey === "ram_gb");
+    expect(processor?.importance).toBe(3);
+    expect(ram?.importance).toBe(2);
+  });
+});
+
+describe("Negative regression: each attribute keyword should not leak", () => {
+  function getLaptopPrioritiesForQuery(query: string) {
+    const context: import("./types").ParserContext = {
+      categories: Object.values(CATEGORY_CONFIGS),
+      currentCategory: "laptop",
+      currentPreferences: laptopCurrentPrefs,
+    };
+    const mode = fallbackDetectRefinementMode(query);
+    if (mode === "normal") return null; // Not a refinement
+    const intent = fallbackParse(query, context);
+    return intent.priorities;
+  }
+
+  it("'camera' does not modify processor_score or ram_gb for laptop", () => {
+    const priorities = getLaptopPrioritiesForQuery("I care more about camera");
+    const processor = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "processor_score");
+    const ram = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "ram_gb");
+    // No priorities should be detected for "camera" on laptop
+    expect(processor).toBeUndefined();
+    expect(ram).toBeUndefined();
+  });
+
+  it("'battery' does not modify processor_score or ram_gb for laptop", () => {
+    const priorities = getLaptopPrioritiesForQuery("I care more about battery");
+    const processor = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "processor_score");
+    const ram = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "ram_gb");
+    expect(processor).toBeUndefined();
+    expect(ram).toBeUndefined();
+  });
+
+  it("'RAM' does not modify processor_score for laptop", () => {
+    const priorities = getLaptopPrioritiesForQuery("I care more about RAM");
+    const processor = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "processor_score");
+    const ram = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "ram_gb");
+    expect(ram).toBeDefined(); // ram_gb IS detected
+    expect(processor).toBeUndefined(); // processor is NOT detected
+  });
+
+  it("'processor' does not modify ram_gb for laptop", () => {
+    const priorities = getLaptopPrioritiesForQuery("I care more about processor");
+    const processor = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "processor_score");
+    const ram = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "ram_gb");
+    expect(processor).toBeDefined(); // processor IS detected
+    expect(ram).toBeUndefined(); // ram is NOT detected
+  });
+
+  it("'display' does not modify processor_score or ram_gb for laptop", () => {
+    const priorities = getLaptopPrioritiesForQuery("I care more about display");
+    const processor = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "processor_score");
+    const ram = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "ram_gb");
+    expect(processor).toBeUndefined();
+    expect(ram).toBeUndefined();
+  });
+
+  it("'storage' does not modify processor_score or ram_gb for laptop", () => {
+    const priorities = getLaptopPrioritiesForQuery("I care more about storage");
+    const processor = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "processor_score");
+    const ram = priorities?.find((p: { attributeKey: string }) => p.attributeKey === "ram_gb");
+    expect(processor).toBeUndefined();
+    expect(ram).toBeUndefined();
   });
 });
