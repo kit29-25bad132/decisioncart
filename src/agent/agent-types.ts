@@ -5,7 +5,7 @@
 // ============================================================
 
 import type { ParsedShoppingIntent } from "@/lib/ai/types";
-import type { Product, UserPreference } from "@/types";
+import type { DecisionResult, Product, UserPreference } from "@/types";
 import type { ProviderInfo } from "@/catalog/provider";
 
 // --- Agent Status ---
@@ -110,6 +110,20 @@ export interface CatalogSearchToolResult {
   error?: string;
 }
 
+/** Typed result from the run_decision bounded tool. */
+export interface DecisionToolResult {
+  /** Whether the tool execution succeeded. */
+  success: boolean;
+  /** Typed result from the deterministic decision engine, when successful. */
+  decisionResult?: DecisionResult;
+  /** The effective category used for the decision. */
+  effectiveCategory: string;
+  /** Human-readable summary of the decision output. */
+  outputSummary: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Agent Result ---
 
 /**
@@ -125,6 +139,8 @@ export interface AgentResult {
   steps: AgentStep[];
   /** Typed result from the catalog search tool, if executed. */
   catalogSearchResult?: CatalogSearchToolResult;
+  /** Typed result from the decision runner tool, if executed. */
+  decisionResult?: DecisionToolResult;
   /** Error message if the agent run failed. */
   error?: string;
 }

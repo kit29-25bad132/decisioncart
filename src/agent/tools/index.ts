@@ -1,8 +1,11 @@
 // ============================================================
 // DecisionCart — Agent Tools Index
 // Minimal registry of bounded agent tools.
-// Only search_catalog is implemented in Step 2.
+// search_catalog (Step 2), run_decision (Step 3).
 // ============================================================
 
 export { executeCatalogSearch } from "./catalog-search";
 export type { CatalogSearchInput } from "./catalog-search";
+
+export { executeDecisionRunner } from "./decision-runner";
+export type { DecisionRunnerInput } from "./decision-runner";
