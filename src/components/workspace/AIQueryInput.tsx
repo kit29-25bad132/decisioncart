@@ -28,6 +28,7 @@ interface AIQueryInputProps {
     agentSteps?: AgentStep[];
     agentStatus?: "running" | "completed" | "failed";
     agentError?: string;
+    agentResult?: AgentResult;
   }) => void;
 }
 
@@ -108,6 +109,7 @@ export function AIQueryInput({
                   ? "failed"
                   : "running",
             agentError: agentResult.error,
+            agentResult,
           });
           setQuery("");
         } else {

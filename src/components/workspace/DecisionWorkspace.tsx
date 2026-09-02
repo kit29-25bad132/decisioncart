@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type { UserPreference, PriorityItem, Constraint, ParserSource, ConstraintRelaxationSuggestion } from "@/types";
-import type { AgentStep } from "@/agent/agent-types";
+import type { AgentStep, AgentResult } from "@/agent/agent-types";
 import { runDecision, buildDecisionMatrix, resolveEffectiveSelectedId } from "@/engine/decision-engine";
 import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
 import { validatePurchaseSelection } from "@/engine/purchase-selection";
@@ -23,6 +23,7 @@ import { CheckoutReadiness } from "./CheckoutReadiness";
 import { DecisionInsightPanel } from "./DecisionInsightPanel";
 import { EmptyResultPanel } from "./EmptyResultPanel";
 import { CompareTopProducts } from "./CompareTopProducts";
+import type { ComparisonResult } from "@/engine/compare-helpers";
 import { AgentTracePanel } from "./AgentTracePanel";
 
 const DEFAULT_BUDGET_MAX = 35000;
@@ -63,6 +64,10 @@ export function DecisionWorkspace() {
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [agentStatus, setAgentStatus] = useState<"running" | "completed" | "failed" | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
+
+  // --- Agent Result State ---
+  const [agentResult, setAgentResult] = useState<AgentResult | null>(null);
+  const [useAgentResult, setUseAgentResult] = useState(false);
 
   const categoryConfig = useMemo(() => {
     const result = resolveCategoryConfig(category);
@@ -110,10 +115,14 @@ export function DecisionWorkspace() {
     };
   }, [category]);
 
-  const result = useMemo(
-    () => runDecision(catalog, preference, categoryConfig),
-    [catalog, preference, categoryConfig]
-  );
+  const result = useMemo(() => {
+    // Use server-side agent result when available and successful
+    if (useAgentResult && agentResult?.decisionResult?.decisionResult) {
+      return agentResult.decisionResult.decisionResult;
+    }
+    // Fallback: local decision execution
+    return runDecision(catalog, preference, categoryConfig);
+  }, [useAgentResult, agentResult, catalog, preference, categoryConfig]);
 
   const matrix = useMemo(
     () =>
@@ -211,6 +220,7 @@ export function DecisionWorkspace() {
       agentSteps?: AgentStep[];
       agentStatus?: "running" | "completed" | "failed";
       agentError?: string;
+      agentResult?: AgentResult;
     }) => {
       setCategory(intent.category);
 
@@ -231,6 +241,15 @@ export function DecisionWorkspace() {
       setAgentStatus(intent.agentStatus ?? null);
       setAgentError(intent.agentError ?? null);
 
+      // Store full agent result for server-side decision output
+      const agent = intent.agentResult ?? null;
+      setAgentResult(agent);
+      setUseAgentResult(
+        agent !== null &&
+        agent.status === "completed" &&
+        agent.decisionResult?.success === true
+      );
+
       // Reset inspection selection
       setSelectedProductId(null);
       // Reset purchase selection
@@ -241,6 +260,7 @@ export function DecisionWorkspace() {
 
   const handlePriorityChange = useCallback(
     (attributeKey: string, importance: number) => {
+      setUseAgentResult(false);
       setPriorities((prev) => {
         const existing = prev.find((p) => p.attributeKey === attributeKey);
         if (existing) {
@@ -256,6 +276,7 @@ export function DecisionWorkspace() {
 
   const handleCategoryChange = useCallback(
     (newCategory: string) => {
+      setUseAgentResult(false);
       setCategory(newCategory);
       setPriorities(buildDefaultPriorities(newCategory));
       setSelectedProductId(null);
@@ -284,6 +305,7 @@ export function DecisionWorkspace() {
   // --- Empty Result Handlers ---
   const handleApplySuggestion = useCallback(
     (suggestion: ConstraintRelaxationSuggestion) => {
+      setUseAgentResult(false);
       if (suggestion.type === "budget" && suggestion.suggestedValue !== undefined) {
         if (suggestion.id === "budget-max") {
           setBudget((prev) => ({ ...prev, max: suggestion.suggestedValue }));
@@ -389,6 +411,7 @@ export function DecisionWorkspace() {
                 preference={preference}
                 categoryConfig={categoryConfig}
                 onBudgetChange={(newMax) => {
+                  setUseAgentResult(false);
                   setBudget((prev) => ({ ...prev, max: newMax }));
                 }}
                 onCategoryChange={handleCategoryChange}
@@ -525,6 +548,11 @@ export function DecisionWorkspace() {
                 attributes={categoryConfig.attributes}
                 priorities={priorities}
                 budget={preference.budget}
+                agentComparisonResult={
+                  useAgentResult
+                    ? (agentResult?.comparisonResult?.comparison ?? null)
+                    : null
+                }
               />
             )}
 

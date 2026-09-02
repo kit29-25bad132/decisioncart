@@ -20,6 +20,8 @@ interface CompareTopProductsProps {
   attributes: AttributeConfig[];
   priorities: PriorityItem[];
   budget?: { min?: number; max?: number };
+  /** Pre-computed comparison from server-side agent result. */
+  agentComparisonResult?: ComparisonResult | null;
 }
 
 export function CompareTopProducts({
@@ -27,17 +29,21 @@ export function CompareTopProducts({
   attributes,
   priorities,
   budget,
+  agentComparisonResult,
 }: CompareTopProductsProps) {
   const weights = useMemo(
     () => calculateWeights(priorities, attributes),
     [priorities, attributes]
   );
 
-  const comparison = useMemo<ComparisonResult | null>(
+  const localComparison = useMemo<ComparisonResult | null>(
     () =>
       compareTopProducts(scoredProducts, attributes, priorities, weights, budget),
     [scoredProducts, attributes, priorities, weights, budget]
   );
+
+  // Use agent-provided comparison when available, otherwise fall back to local
+  const comparison = agentComparisonResult ?? localComparison;
 
   if (!comparison) return null;
   if (comparison.products.length < 2) return null;
