@@ -24,6 +24,7 @@ export type AgentToolName =
   | "search_catalog"
   | "analyze_reviews"
   | "run_decision"
+  | "relax_constraints"
   | "compare_products"
   | "verify_purchase";
 
@@ -141,6 +142,20 @@ export interface ReviewAnalysisToolResult {
   error?: string;
 }
 
+// --- Constraint Relaxation Result ---
+
+/** Typed result from the relax_constraints bounded tool. */
+export interface ConstraintRelaxationToolResult {
+  /** Whether the tool execution succeeded. */
+  success: boolean;
+  /** The structured relaxation result. */
+  result: import("@/engine/constraint-relaxation").ConstraintRelaxationResult;
+  /** Human-readable summary of the relaxation output. */
+  outputSummary: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Product Comparison Result ---
 
 /** Typed result from the compare_products bounded tool. */
@@ -176,6 +191,8 @@ export interface AgentResult {
   decisionResult?: DecisionToolResult;
   /** Typed result from the review analysis tool, if executed. */
   reviewAnalysisResult?: ReviewAnalysisToolResult;
+  /** Typed result from the constraint relaxation tool, if executed. */
+  relaxationResult?: ConstraintRelaxationToolResult;
   /** Typed result from the product comparison tool, if executed. */
   comparisonResult?: ProductComparisonResult;
   /** Error message if the agent run failed. */

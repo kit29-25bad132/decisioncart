@@ -15,7 +15,9 @@ import type { Product } from "@/types";
 import { executeCatalogSearch } from "./tools/catalog-search";
 import { executeReviewAnalyzer } from "./tools/review-analyzer";
 import { executeDecisionRunner } from "./tools/decision-runner";
+import { executeConstraintRelaxation } from "./tools/constraint-relaxation";
 import { executeProductComparison } from "./tools/product-comparison";
+import { resolveCategoryConfig } from "@/catalog/category-resolver";
 
 // --- Deterministic Step Plan ---
 
@@ -33,6 +35,7 @@ const DEFAULT_STEP_PLAN: StepPlanEntry[] = [
   { tool: "search_catalog", label: "Search catalog for matching products" },
   { tool: "analyze_reviews", label: "Analyze product review intelligence" },
   { tool: "run_decision", label: "Run deterministic decision engine" },
+  { tool: "relax_constraints", label: "Explore constraint alternatives" },
   { tool: "compare_products", label: "Compare top products and generate insights" },
 ];
 
@@ -261,6 +264,94 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
   }
 
+  // --- Execute relax_constraints (conditional: only when zero results) ---
+
+  const relaxationStep = steps.find((s) => s.tool === "relax_constraints");
+
+  if (!relaxationStep) {
+    return {
+      status: "failed",
+      parsedIntent: input.intent,
+      steps,
+      catalogSearchResult: catalogResult,
+      reviewAnalysisResult,
+      decisionResult: decisionToolResult,
+      error: "Internal error: relax_constraints step not found in plan.",
+    };
+  }
+
+  // Only run relaxation when decision engine returns zero scored products
+  const needsRelaxation =
+    decisionToolResult.success &&
+    decisionToolResult.decisionResult &&
+    decisionToolResult.decisionResult.scoredProducts.length === 0;
+
+  let relaxationResult: import("./agent-types").ConstraintRelaxationToolResult = {
+    success: true,
+    result: {
+      exactMatchFound: false,
+      alternatives: [],
+      relaxedConstraints: [],
+      explanation: "Relaxation not needed — products found.",
+      alternativeCount: 0,
+    },
+    outputSummary: "Relaxation skipped: products matched original constraints.",
+  };
+
+  if (needsRelaxation) {
+    // Transition: pending → running
+    relaxationStep.status = "running";
+    relaxationStep.startedAt = Date.now();
+    relaxationStep.inputSummary = "0 products matched — testing bounded constraint relaxation";
+
+    // Resolve category config for relaxation
+    const effectiveCategory = decisionToolResult.effectiveCategory;
+    const categoryResolution = resolveCategoryConfig(effectiveCategory);
+
+    if (categoryResolution && catalogResult.products.length > 0) {
+      const preference: import("@/types").UserPreference = {
+        category: effectiveCategory,
+        budget: input.intent.budget,
+        priorities: input.intent.priorities,
+        constraints: input.intent.constraints,
+      };
+
+      try {
+        relaxationResult = await executeConstraintRelaxation({
+          products: catalogResult.products,
+          preference,
+          categoryConfig: categoryResolution.config,
+        });
+
+        // Transition: running → completed
+        relaxationStep.completedAt = Date.now();
+        relaxationStep.status = "completed";
+        relaxationStep.outputSummary = relaxationResult.outputSummary;
+      } catch (err: unknown) {
+        // Non-fatal: continue without relaxation
+        relaxationStep.completedAt = Date.now();
+        relaxationStep.status = "completed";
+        const errorMessage =
+          err instanceof Error ? err.message : "Unexpected relaxation error";
+        relaxationStep.outputSummary = `Relaxation analysis skipped: ${errorMessage}.`;
+      }
+    } else {
+      // No category config or no products — skip relaxation
+      relaxationStep.completedAt = Date.now();
+      relaxationStep.status = "completed";
+      relaxationStep.outputSummary = categoryResolution
+        ? "Relaxation skipped: no products available."
+        : `Relaxation skipped: category config not found for "${effectiveCategory}".`;
+    }
+  } else {
+    // Skip relaxation step entirely
+    relaxationStep.status = "skipped";
+    relaxationStep.startedAt = Date.now();
+    relaxationStep.completedAt = Date.now();
+    relaxationStep.inputSummary = "Products matched original constraints";
+    relaxationStep.outputSummary = "Relaxation not needed — products matched original constraints.";
+  }
+
   // --- Execute compare_products ---
 
   const comparisonStep = steps.find((s) => s.tool === "compare_products");
@@ -300,6 +391,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         catalogSearchResult: catalogResult,
         reviewAnalysisResult,
         decisionResult: decisionToolResult,
+        relaxationResult,
         comparisonResult,
       };
     } else {
@@ -314,6 +406,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         catalogSearchResult: catalogResult,
         reviewAnalysisResult,
         decisionResult: decisionToolResult,
+        relaxationResult,
         comparisonResult,
         error: comparisonResult.error,
       };
@@ -335,6 +428,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       catalogSearchResult: catalogResult,
       reviewAnalysisResult,
       decisionResult: decisionToolResult,
+      relaxationResult,
       error: errorMessage,
     };
   }

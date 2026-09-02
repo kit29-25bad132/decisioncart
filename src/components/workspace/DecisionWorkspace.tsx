@@ -475,6 +475,11 @@ export function DecisionWorkspace() {
             analysis={result.emptyResultAnalysis}
             onApplySuggestion={handleApplySuggestion}
             onViewProduct={handleViewProduct}
+            relaxationResult={
+              useAgentResult
+                ? agentResult?.relaxationResult?.result
+                : undefined
+            }
           />
         )}
         {isEmpty && !catalogError && !result.emptyResultAnalysis && (
