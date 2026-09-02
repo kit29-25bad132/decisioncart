@@ -5,7 +5,7 @@ import type { UserPreference, PriorityItem, Constraint, ParserSource, Constraint
 import { runDecision, buildDecisionMatrix, resolveEffectiveSelectedId } from "@/engine/decision-engine";
 import { calculateDecisionConfidence, buildWhyMatches, buildTradeOffNotes } from "@/engine/decision-confidence";
 import { validatePurchaseSelection } from "@/engine/purchase-selection";
-import { getCategoryConfig } from "@/catalog/categories";
+import { resolveCategoryConfig } from "@/catalog/category-resolver";
 import type { Product } from "@/types";
 import { fetchProducts } from "@/catalog/registry";
 import { Header } from "./Header";
@@ -30,9 +30,9 @@ const INITIAL_CATEGORIES = [
 ];
 
 function buildDefaultPriorities(category: string): PriorityItem[] {
-  const config = getCategoryConfig(category);
-  if (!config) return [];
-  return config.attributes.map((attr) => ({
+  const result = resolveCategoryConfig(category);
+  if (!result) return [];
+  return result.config.attributes.map((attr) => ({
     attributeKey: attr.key,
     importance: attr.defaultImportance ?? 2,
   }));
@@ -57,7 +57,15 @@ export function DecisionWorkspace() {
   const [lastParserSource, setLastParserSource] = useState<ParserSource>("fallback");
   const [lastOriginalQuery, setLastOriginalQuery] = useState("");
 
-  const categoryConfig = useMemo(() => getCategoryConfig(category)!, [category]);
+  const categoryConfig = useMemo(() => {
+    const result = resolveCategoryConfig(category);
+    if (!result) {
+      // Fallback to first available category if resolved config is missing
+      const fallback = resolveCategoryConfig(INITIAL_CATEGORIES[0].key);
+      return fallback?.config ?? { category, label: category, attributes: [] };
+    }
+    return result.config;
+  }, [category]);
 
   const preference: UserPreference = useMemo(
     () => ({

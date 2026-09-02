@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { getAIProvider } from "./provider";
 import { fallbackParse } from "./fallback-parser";
+import { resolveCategoryConfig as resolveFromCatalog } from "@/catalog/category-resolver";
 
 // --- Category keywords (mirrors fallback-parser for detection) ---
 
@@ -111,13 +112,36 @@ export async function parseShoppingQuery(
 
 // --- Helpers ---
 
+/**
+ * Resolve a category config from the parser context.
+ * Uses the context's category list first, then falls back to the resolver
+ * for dynamic categories.
+ */
 function resolveCategoryConfig(context: ParserContext): CategoryConfig | undefined {
+  // First try context-provided categories (backward compatible)
   if (context.currentCategory) {
-    return context.categories.find(
+    const found = context.categories.find(
       (c) => c.category === context.currentCategory
     );
+    if (found) return found;
   }
+
+  // Fall back to resolver for dynamic categories
+  if (context.currentCategory) {
+    const resolved = resolveCategoryConfigFromResolver(context.currentCategory);
+    if (resolved) return resolved;
+  }
+
+  // Default to first available category
   return context.categories[0];
+}
+
+/**
+ * Resolve a category config using the resolver (registered + dynamic).
+ */
+function resolveCategoryConfigFromResolver(category: string): CategoryConfig | undefined {
+  const result = resolveFromCatalog(category);
+  return result?.config;
 }
 
 // --- Refinement Mode Detection ---

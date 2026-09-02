@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { parseShoppingQuery } from "@/lib/ai/parse";
-import { CATEGORY_CONFIGS } from "@/catalog/categories";
+import { getAllCategoryConfigs } from "@/catalog/category-resolver";
 import type { ParserContext } from "@/lib/ai/types";
 
 const MAX_QUERY_LENGTH = 500;
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Build parser context
-    const allCategories = Object.values(CATEGORY_CONFIGS);
+    const allCategories = getAllCategoryConfigs();
 
     const context: ParserContext = {
       categories: allCategories,

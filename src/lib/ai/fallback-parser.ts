@@ -360,10 +360,19 @@ function detectCategory(
 ): string | null {
   const lower = query.toLowerCase();
 
-  // Check each category's keywords
+  // Check each category's keywords (static)
   for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     for (const kw of keywords) {
       if (lower.includes(kw)) return category;
+    }
+  }
+
+  // Check context-provided categories
+  for (const cat of context.categories) {
+    const catLabel = cat.label.toLowerCase();
+    const catKey = cat.category.toLowerCase();
+    if (lower.includes(catLabel) || lower.includes(catKey)) {
+      return cat.category;
     }
   }
 
