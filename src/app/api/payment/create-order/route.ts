@@ -2,16 +2,24 @@
 // DecisionCart — Create Razorpay Order API Route
 // Server-side only. Amount is always derived from the server
 // catalog — never trusted from the client.
+//
+// V1 UPDATE: Requires an approved purchase record before creating
+// an order. Validates approval state, expiry, and product match.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { getCatalog } from "@/catalog/demo-data";
+import {
+  purchaseStore,
+  isApprovalExpired,
+} from "@/engine/purchase-state-machine";
 
 /**
  * POST /api/payment/create-order
  *
  * Creates a Razorpay order for a given product.
+ * Requires a valid purchase record in APPROVED state.
  * The price is always read from the server-side catalog.
  */
 export async function POST(request: NextRequest) {
@@ -46,8 +54,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { productId, category } = body as Record<string, unknown>;
+    const { productId, category, purchaseId } = body as Record<string, unknown>;
 
+    // --- 3. Validate required fields ---
     if (!productId || typeof productId !== "string" || productId.trim().length === 0) {
       return NextResponse.json(
         { success: false, error: "productId is required and must be a non-empty string." },
@@ -62,7 +71,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 3. Look up the product from the server-side catalog ---
+    if (!purchaseId || typeof purchaseId !== "string" || purchaseId.trim().length === 0) {
+      return NextResponse.json(
+        { success: false, error: "purchaseId is required. Approval must be granted before order creation." },
+        { status: 400 }
+      );
+    }
+
+    // --- 4. Validate purchase record and approval state ---
+    const purchase = purchaseStore.get(purchaseId.trim());
+
+    if (!purchase) {
+      return NextResponse.json(
+        { success: false, error: "Purchase record not found." },
+        { status: 404 }
+      );
+    }
+
+    if (purchase.state !== "APPROVED") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Purchase must be approved before creating an order. Current state: ${purchase.state}`,
+        },
+        { status: 403 }
+      );
+    }
+
+    // --- 5. Check approval expiry ---
+    if (purchase.approvedAt === null || isApprovalExpired(purchase.approvedAt)) {
+      // Expire the purchase record
+      purchaseStore.expire(purchaseId.trim());
+      return NextResponse.json(
+        { success: false, error: "Purchase approval has expired. Please approve again." },
+        { status: 410 }
+      );
+    }
+
+    // --- 6. Verify product matches purchase record ---
+    if (purchase.productId !== productId.trim()) {
+      return NextResponse.json(
+        { success: false, error: "Product ID does not match the approved purchase." },
+        { status: 400 }
+      );
+    }
+
+    // --- 7. Look up the product from the server-side catalog ---
     const catalog = getCatalog(category.trim());
     const product = catalog.find((p) => p.id === productId.trim());
 
@@ -73,17 +127,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 4. Convert INR price to paise ---
+    // --- 8. Convert INR price to paise ---
     // Razorpay expects amounts in the smallest currency unit (paise for INR).
     const amountInPaise = Math.round(product.price * 100);
 
-    // --- 5. Initialize Razorpay server-side ---
+    // --- 9. Initialize Razorpay server-side ---
     const razorpay = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
     });
 
-    // --- 6. Create the Razorpay order ---
+    // --- 10. Create the Razorpay order ---
     const order = await razorpay.orders.create({
       amount: amountInPaise,
       currency: "INR",
@@ -92,10 +146,14 @@ export async function POST(request: NextRequest) {
         productId: product.id,
         productName: product.name,
         category: product.category,
+        purchaseId: purchase.purchaseId,
       },
     });
 
-    // --- 7. Return safe response (no secrets exposed) ---
+    // --- 11. Update purchase state to ORDER_CREATED ---
+    purchaseStore.setRazorpayOrder(purchaseId.trim(), order.id);
+
+    // --- 12. Return safe response (no secrets exposed) ---
     return NextResponse.json({
       success: true,
       order: {

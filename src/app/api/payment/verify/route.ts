@@ -2,16 +2,21 @@
 // DecisionCart — Payment Verification API Route
 // Server-side only. Verifies Razorpay payment signatures
 // using HMAC SHA256.
+//
+// V1 UPDATE: Updates purchase state to PAID on successful
+// verification, then completes the purchase (DONE).
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { purchaseStore } from "@/engine/purchase-state-machine";
 
 /**
  * POST /api/payment/verify
  *
  * Verifies a Razorpay payment signature to confirm authenticity.
  * Uses HMAC SHA256 with the server-side secret key.
+ * Updates purchase state on success.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -103,6 +108,27 @@ export async function POST(request: NextRequest) {
     const isValid = crypto.timingSafeEqual(receivedBuf, expectedBuf);
 
     if (isValid) {
+      // --- 6. Update purchase state to PAID (V1) ---
+      // Find purchase by razorpay_order_id and update state
+      const allPurchases = purchaseStore.all();
+      const purchase = allPurchases.find(
+        (p) => p.razorpayOrderId === razorpay_order_id.trim()
+      );
+
+      if (purchase) {
+        try {
+          purchaseStore.setRazorpayPayment(
+            purchase.purchaseId,
+            razorpay_payment_id.trim()
+          );
+          // Complete the purchase
+          purchaseStore.complete(purchase.purchaseId);
+        } catch (err) {
+          console.error("Failed to update purchase state:", err);
+          // Verification still succeeds — state update is best-effort in V1
+        }
+      }
+
       return NextResponse.json({
         success: true,
         message: "Payment verified successfully.",

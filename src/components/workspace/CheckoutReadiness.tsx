@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ScoredProduct, DecisionConfidence } from "@/types";
+import type { PurchaseState } from "@/engine/purchase-state-machine";
+import {
+  APPROVAL_EXPIRY_MS,
+  approvalRemainingMs,
+} from "@/engine/purchase-state-machine";
 
 /** Safe payment details stored after successful verification. */
 interface VerifiedPaymentDetails {
@@ -19,6 +24,7 @@ interface CreateOrderResponse {
   success: boolean;
   error?: string;
   keyId?: string;
+  purchaseId?: string;
   order?: {
     id: string;
     amount: number;
@@ -89,35 +95,126 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
+type CheckoutStatus =
+  | "idle"
+  | "confirming"
+  | "approved"
+  | "creating"
+  | "opening"
+  | "verifying"
+  | "success"
+  | "error";
+
+/**
+ * Format remaining time as mm:ss display string.
+ */
+function formatRemaining(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export function CheckoutReadiness({
   scoredProduct,
   confidence,
   onProceedToCheckout,
 }: CheckoutReadinessProps) {
-  const [status, setStatus] = useState<
-    "idle" | "creating" | "opening" | "verifying" | "success" | "error"
-  >("idle");
+  const [status, setStatus] = useState<CheckoutStatus>("idle");
 
   const [errorMessage, setErrorMessage] = useState("");
   const [paymentDetails, setPaymentDetails] =
     useState<VerifiedPaymentDetails | null>(null);
 
+  // --- Approval Expiry Timer ---
+  const [approvalTimeRemaining, setApprovalTimeRemaining] = useState<number | null>(null);
+  const approvalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const approvalCreatedAtRef = useRef<number | null>(null);
+
+  // --- Purchase ID (server-generated) ---
+  const purchaseIdRef = useRef<string | null>(null);
+
   const { product } = scoredProduct;
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (approvalTimerRef.current) {
+        clearInterval(approvalTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Check expiry and auto-expire
+  useEffect(() => {
+    if (status !== "approved" || approvalCreatedAtRef.current === null) return;
+
+    const remaining = approvalRemainingMs(approvalCreatedAtRef.current);
+    if (remaining <= 0) {
+      setStatus("error");
+      setErrorMessage("Approval has expired. Please approve again.");
+      setApprovalTimeRemaining(null);
+      if (approvalTimerRef.current) {
+        clearInterval(approvalTimerRef.current);
+        approvalTimerRef.current = null;
+      }
+      return;
+    }
+
+    setApprovalTimeRemaining(remaining);
+
+    approvalTimerRef.current = setInterval(() => {
+      const now = Date.now();
+      const rem = approvalRemainingMs(approvalCreatedAtRef.current!, now);
+      if (rem <= 0) {
+        setStatus("error");
+        setErrorMessage("Approval has expired. Please approve again.");
+        setApprovalTimeRemaining(null);
+        if (approvalTimerRef.current) {
+          clearInterval(approvalTimerRef.current);
+          approvalTimerRef.current = null;
+        }
+        return;
+      }
+      setApprovalTimeRemaining(rem);
+    }, 1000);
+
+    return () => {
+      if (approvalTimerRef.current) {
+        clearInterval(approvalTimerRef.current);
+        approvalTimerRef.current = null;
+      }
+    };
+  }, [status]);
 
   function handleReturnToDecision() {
     setStatus("idle");
     setPaymentDetails(null);
     setErrorMessage("");
+    setApprovalTimeRemaining(null);
+    purchaseIdRef.current = null;
+    approvalCreatedAtRef.current = null;
   }
 
-  async function handleProceed() {
+  /** Step 1: User clicks "Proceed to Purchase" → CONFIRMING */
+  function handleProceedToConfirm() {
+    setStatus("confirming");
+    setErrorMessage("");
+    onProceedToCheckout();
+  }
+
+  /** Step 2: User clicks "Confirm Purchase" → APPROVED → create order */
+  const handleConfirmPurchase = useCallback(async () => {
     try {
-      setStatus("creating");
+      setStatus("approved");
       setErrorMessage("");
 
-      onProceedToCheckout();
+      // Record approval time for client-side expiry tracking
+      const now = Date.now();
+      approvalCreatedAtRef.current = now;
+      setApprovalTimeRemaining(APPROVAL_EXPIRY_MS);
 
-      // Load Razorpay Checkout SDK
+      // Create order on server — server validates approval state
       const razorpayLoaded = await loadRazorpayScript();
 
       if (!razorpayLoaded) {
@@ -126,15 +223,16 @@ export function CheckoutReadiness({
         );
       }
 
-      // Create order securely on our server
+      // Server creates purchase record + validates approval + creates Razorpay order
       const orderResponse = await fetch("/api/payment/create-order", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId: product.id,
           category: product.category,
+          // purchaseId will be managed server-side in production;
+          // for V1, server creates its own purchase record
+          purchaseId: purchaseIdRef.current ?? undefined,
         }),
       });
 
@@ -149,6 +247,11 @@ export function CheckoutReadiness({
         throw new Error(
           orderData.error || "Unable to create the payment order."
         );
+      }
+
+      // Store purchaseId for subsequent requests
+      if (orderData.purchaseId) {
+        purchaseIdRef.current = orderData.purchaseId;
       }
 
       const options: RazorpayOptions = {
@@ -166,9 +269,7 @@ export function CheckoutReadiness({
             // Verify payment securely on our server
             const verifyResponse = await fetch("/api/payment/verify", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify(response),
             });
 
@@ -191,9 +292,7 @@ export function CheckoutReadiness({
             setStatus("success");
           } catch (error: unknown) {
             console.error("Payment verification failed:", error);
-
             setStatus("error");
-
             setErrorMessage(
               error instanceof Error
                 ? error.message
@@ -205,7 +304,9 @@ export function CheckoutReadiness({
         modal: {
           ondismiss: () => {
             setStatus((currentStatus) =>
-              currentStatus === "opening" || currentStatus === "creating" ? "idle" : currentStatus
+              currentStatus === "opening" || currentStatus === "creating"
+                ? "approved"
+                : currentStatus
             );
           },
         },
@@ -215,23 +316,29 @@ export function CheckoutReadiness({
         },
       };
 
+      setStatus("creating");
       const razorpay = new window.Razorpay(options);
-
       setStatus("opening");
-
       razorpay.open();
     } catch (error: unknown) {
       console.error("Checkout failed:", error);
-
       setStatus("error");
-
       setErrorMessage(
         error instanceof Error
           ? error.message
           : "Unable to start checkout. Please try again."
       );
     }
+  }, [product]);
+
+  function handleCancelConfirmation() {
+    setStatus("idle");
+    setErrorMessage("");
+    setApprovalTimeRemaining(null);
+    approvalCreatedAtRef.current = null;
   }
+
+  // --- UI States ---
 
   // Payment verified successfully — post-payment confirmation card
   if (status === "success" && paymentDetails) {
@@ -426,6 +533,208 @@ export function CheckoutReadiness({
     );
   }
 
+  // --- CONFIRMING: Show confirmation dialog ---
+  if (status === "confirming") {
+    return (
+      <div className="bg-white rounded-2xl border-2 border-zinc-900 p-6 shadow-lg">
+        {/* Confirmation Header */}
+        <div className="text-center mb-5">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 mb-3 border border-amber-100">
+            <svg
+              className="w-6 h-6 text-amber-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-zinc-900">
+            Confirm Purchase
+          </h3>
+          <p className="text-sm text-zinc-500 mt-1">
+            Please review your purchase details below.
+          </p>
+        </div>
+
+        {/* Product Details */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-semibold text-zinc-900">
+                {product.name}
+              </p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {product.brand} · {product.category}
+              </p>
+            </div>
+            <p className="text-lg font-bold text-zinc-900">
+              ₹{product.price.toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        {/* Decision Info */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-zinc-500">
+              Decision Confidence
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 text-xs font-semibold text-zinc-700 border border-zinc-200">
+              {confidence.score}%
+            </span>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-5">
+            <p className="text-xs text-red-600">{errorMessage}</p>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleCancelConfirmation}
+            className="flex-1 px-4 py-3 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirmPurchase}
+            className="flex-1 px-4 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm"
+          >
+            Confirm Purchase
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- APPROVED: Waiting for order creation / payment ---
+  if (status === "approved" || status === "creating" || status === "opening") {
+    return (
+      <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-50 mb-3 border border-emerald-100">
+            <svg
+              className="animate-spin h-6 w-6 text-emerald-600"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            {status === "approved"
+              ? "Creating secure payment order..."
+              : status === "creating"
+                ? "Creating secure payment order..."
+                : "Opening checkout..."}
+          </h3>
+          <p className="text-xs text-zinc-500 mt-1">
+            Please wait while we set up your secure checkout.
+          </p>
+          {approvalTimeRemaining !== null && approvalTimeRemaining > 0 && (
+            <p className="text-[11px] text-zinc-400 mt-2">
+              Approval expires in {formatRemaining(approvalTimeRemaining)}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- VERIFYING: Payment verification in progress ---
+  if (status === "verifying") {
+    return (
+      <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 mb-3 border border-blue-100">
+            <svg
+              className="animate-spin h-6 w-6 text-blue-600"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            Verifying payment...
+          </h3>
+          <p className="text-xs text-zinc-500 mt-1">
+            Confirming your payment with Razorpay.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- ERROR state ---
+  if (status === "error") {
+    return (
+      <div className="bg-white rounded-2xl border border-red-200 p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center mb-4">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-50 mb-3 border border-red-100">
+            <svg
+              className="w-6 h-6 text-red-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            {errorMessage || "Something went wrong"}
+          </h3>
+        </div>
+        <button
+          onClick={handleReturnToDecision}
+          className="w-full px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  // --- IDLE: Default pre-purchase state with "Proceed to Purchase" ---
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
       {/* Pre-purchase decision summary */}
@@ -454,66 +763,28 @@ export function CheckoutReadiness({
             Ready to purchase?
           </p>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Secure Razorpay checkout — server-side verified
+            You&apos;ll confirm before any payment is created
           </p>
-
-          {status === "error" && (
-            <p className="text-xs text-red-500 mt-2">
-              {errorMessage}
-            </p>
-          )}
         </div>
 
         <button
-          onClick={handleProceed}
-          disabled={status === "creating" || status === "opening" || status === "verifying"}
-          className="px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2 whitespace-nowrap"
+          onClick={handleProceedToConfirm}
+          className="px-6 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm flex items-center justify-center gap-2 whitespace-nowrap"
         >
-          {status === "creating"
-            ? "Creating secure order..."
-            : status === "opening"
-              ? "Opening checkout..."
-              : status === "verifying"
-                ? "Verifying payment..."
-                : "Proceed with Confidence"}
-
-          {(status === "idle" || status === "error") && (
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M13 7l5 5m0 0l-5 5m5-5H6"
-              />
-            </svg>
-          )}
-
-          {(status === "creating" || status === "opening" || status === "verifying") && (
-            <svg
-              className="animate-spin h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-          )}
+          Proceed to Purchase
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13 7l5 5m0 0l-5 5m5-5H6"
+            />
+          </svg>
         </button>
       </div>
     </div>
