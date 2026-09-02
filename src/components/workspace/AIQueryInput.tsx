@@ -372,7 +372,7 @@ function ParsedItem({ label, value }: { label: string; value: string }) {
         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
       </svg>
       <span className="text-zinc-400 capitalize min-w-[70px]">{label}:</span>
-      <span className="text-zinc-800 font-medium">{value}</span>
+      <span className="text-zinc-800 font-medium capitalize">{value}</span>
     </div>
   );
 }

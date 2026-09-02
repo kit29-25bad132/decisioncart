@@ -127,6 +127,7 @@ type CheckoutStatus =
   | "approved"
   | "creating"
   | "opening"
+  | "cancelled"
   | "verifying"
   | "success"
   | "error";
@@ -160,6 +161,15 @@ export function CheckoutReadiness({
   const purchaseIdRef = useRef<string | null>(null);
   const approvalExpiresAtRef = useRef<number | null>(null);
 
+  // --- Razorpay retry data (order created, user cancelled) ---
+  const razorpayRetryRef = useRef<{
+    keyId: string;
+    orderId: string;
+    amount: number;
+    currency: string;
+    productName: string;
+  } | null>(null);
+
   const { product } = scoredProduct;
 
   // Cleanup timer on unmount
@@ -173,7 +183,11 @@ export function CheckoutReadiness({
 
   // Check expiry and auto-expire
   useEffect(() => {
-    if (status !== "approved" || approvalExpiresAtRef.current === null) return;
+    if (
+      (status !== "approved" && status !== "cancelled") ||
+      approvalExpiresAtRef.current === null
+    )
+      return;
 
     const checkExpiry = () => {
       const now = Date.now();
@@ -212,6 +226,86 @@ export function CheckoutReadiness({
     setApprovalTimeRemaining(null);
     purchaseIdRef.current = null;
     approvalExpiresAtRef.current = null;
+    razorpayRetryRef.current = null;
+  }
+
+  /**
+   * Re-open Razorpay Checkout with the same order.
+   * Razorpay orders can be reopened until they expire.
+   */
+  function handleRetryPayment() {
+    const retry = razorpayRetryRef.current;
+    if (!retry) {
+      setErrorMessage("No payment order available. Please try again.");
+      setStatus("error");
+      return;
+    }
+
+    setErrorMessage("");
+
+    const options: RazorpayOptions = {
+      key: retry.keyId,
+      amount: retry.amount,
+      currency: retry.currency,
+      name: "DecisionCart",
+      description: `Purchase of ${retry.productName}`,
+      order_id: retry.orderId,
+
+      handler: async (response: RazorpayPaymentResponse) => {
+        try {
+          setStatus("verifying");
+
+          const verifyResponse = await fetch("/api/payment/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(response),
+          });
+
+          const verifyData: VerifyPaymentResponse =
+            await verifyResponse.json();
+
+          if (!verifyResponse.ok || !verifyData.success) {
+            throw new Error(
+              verifyData.error ||
+                verifyData.message ||
+                "Payment verification failed."
+            );
+          }
+
+          setPaymentDetails({
+            orderId: response.razorpay_order_id,
+            paymentId: response.razorpay_payment_id,
+          });
+          setStatus("success");
+        } catch (error: unknown) {
+          console.error("Payment verification failed:", error);
+          setStatus("error");
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Payment verification failed."
+          );
+        }
+      },
+
+      modal: {
+        ondismiss: () => {
+          setStatus((currentStatus) =>
+            currentStatus === "opening" || currentStatus === "creating"
+              ? "cancelled"
+              : currentStatus
+          );
+        },
+      },
+
+      theme: {
+        color: "#18181b",
+      },
+    };
+
+    setStatus("opening");
+    const razorpay = new window.Razorpay(options);
+    razorpay.open();
   }
 
   /**
@@ -389,7 +483,7 @@ export function CheckoutReadiness({
           ondismiss: () => {
             setStatus((currentStatus) =>
               currentStatus === "opening" || currentStatus === "creating"
-                ? "approved"
+                ? "cancelled"
                 : currentStatus
             );
           },
@@ -398,6 +492,15 @@ export function CheckoutReadiness({
         theme: {
           color: "#18181b",
         },
+      };
+
+      // Store order details for retry if user cancels
+      razorpayRetryRef.current = {
+        keyId: orderData.keyId,
+        orderId: orderData.order.id,
+        amount: orderData.order.amount,
+        currency: orderData.order.currency,
+        productName: product.name,
       };
 
       setStatus("creating");
@@ -465,7 +568,7 @@ export function CheckoutReadiness({
                 {product.name}
               </p>
               <p className="text-xs text-zinc-500 mt-0.5">
-                {product.brand} · {product.category}
+                {product.brand} · <span className="capitalize">{product.category}</span>
               </p>
             </div>
             <p className="text-sm font-semibold text-zinc-900">
@@ -654,7 +757,7 @@ export function CheckoutReadiness({
                 {product.name}
               </p>
               <p className="text-xs text-zinc-500 mt-0.5">
-                {product.brand} · {product.category}
+                {product.brand} · <span className="capitalize">{product.category}</span>
               </p>
             </div>
             <p className="text-lg font-bold text-zinc-900">
@@ -695,6 +798,79 @@ export function CheckoutReadiness({
             className="flex-1 px-4 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm"
           >
             Confirm Purchase
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- CANCELLED: User dismissed Razorpay checkout ---
+  if (status === "cancelled") {
+    return (
+      <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center mb-5">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 mb-3 border border-amber-100">
+            <svg
+              className="w-6 h-6 text-amber-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            Payment cancelled
+          </h3>
+          <p className="text-xs text-zinc-500 mt-1 max-w-xs">
+            You closed the payment window. Your order is still valid.
+          </p>
+        </div>
+
+        {/* Product Summary */}
+        <div className="bg-zinc-50 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-zinc-900">
+                {product.name}
+              </p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {product.brand} · <span className="capitalize">{product.category}</span>
+              </p>
+            </div>
+            <p className="text-sm font-semibold text-zinc-900">
+              ₹{product.price.toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        {/* Approval Timer */}
+        {approvalTimeRemaining !== null && approvalTimeRemaining > 0 && (
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 mb-4">
+            <p className="text-[11px] text-amber-700 text-center">
+              Approval expires in {formatRemaining(approvalTimeRemaining)}
+            </p>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleReturnToDecision}
+            className="flex-1 px-4 py-3 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleRetryPayment}
+            className="flex-1 px-4 py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 active:bg-zinc-950 transition-all shadow-sm"
+          >
+            Try Again
           </button>
         </div>
       </div>
