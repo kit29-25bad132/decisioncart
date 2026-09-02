@@ -22,6 +22,7 @@ export type AgentStatus = "idle" | "running" | "completed" | "failed";
  */
 export type AgentToolName =
   | "search_catalog"
+  | "analyze_reviews"
   | "run_decision"
   | "compare_products"
   | "verify_purchase";
@@ -124,6 +125,22 @@ export interface DecisionToolResult {
   error?: string;
 }
 
+// --- Review Analysis Result ---
+
+/** Typed result from the analyze_reviews bounded tool. */
+export interface ReviewAnalysisToolResult {
+  /** Whether the tool execution succeeded. */
+  success: boolean;
+  /** Review intelligence for each product, keyed by product ID. */
+  reviews: Record<string, import("@/reviews/types").ProductReviewIntelligence>;
+  /** Number of products analyzed. */
+  analyzedCount: number;
+  /** Human-readable summary of the analysis. */
+  outputSummary: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Product Comparison Result ---
 
 /** Typed result from the compare_products bounded tool. */
@@ -157,6 +174,8 @@ export interface AgentResult {
   catalogSearchResult?: CatalogSearchToolResult;
   /** Typed result from the decision runner tool, if executed. */
   decisionResult?: DecisionToolResult;
+  /** Typed result from the review analysis tool, if executed. */
+  reviewAnalysisResult?: ReviewAnalysisToolResult;
   /** Typed result from the product comparison tool, if executed. */
   comparisonResult?: ProductComparisonResult;
   /** Error message if the agent run failed. */

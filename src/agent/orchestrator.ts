@@ -13,6 +13,7 @@ import type {
 } from "./agent-types";
 import type { Product } from "@/types";
 import { executeCatalogSearch } from "./tools/catalog-search";
+import { executeReviewAnalyzer } from "./tools/review-analyzer";
 import { executeDecisionRunner } from "./tools/decision-runner";
 import { executeProductComparison } from "./tools/product-comparison";
 
@@ -30,6 +31,7 @@ interface StepPlanEntry {
 
 const DEFAULT_STEP_PLAN: StepPlanEntry[] = [
   { tool: "search_catalog", label: "Search catalog for matching products" },
+  { tool: "analyze_reviews", label: "Analyze product review intelligence" },
   { tool: "run_decision", label: "Run deterministic decision engine" },
   { tool: "compare_products", label: "Compare top products and generate insights" },
 ];
@@ -136,6 +138,57 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
   }
 
+  // --- Execute analyze_reviews ---
+
+  const reviewStep = steps.find((s) => s.tool === "analyze_reviews");
+
+  if (!reviewStep) {
+    return {
+      status: "failed",
+      parsedIntent: input.intent,
+      steps,
+      catalogSearchResult: catalogResult,
+      error: "Internal error: analyze_reviews step not found in plan.",
+    };
+  }
+
+  // Transition: pending → running
+  reviewStep.status = "running";
+  reviewStep.startedAt = Date.now();
+  reviewStep.inputSummary = `${catalogResult.products.length} product${catalogResult.products.length === 1 ? "" : "s"} from catalog`;
+
+  let reviewAnalysisResult: import("./agent-types").ReviewAnalysisToolResult = {
+    success: true,
+    reviews: {},
+    analyzedCount: 0,
+    outputSummary: "Review analysis skipped.",
+  };
+  try {
+    reviewAnalysisResult = await executeReviewAnalyzer({
+      products: catalogResult.products,
+    });
+
+    // Transition: running → completed or failed
+    reviewStep.completedAt = Date.now();
+
+    if (reviewAnalysisResult.success) {
+      reviewStep.status = "completed";
+      reviewStep.outputSummary = reviewAnalysisResult.outputSummary;
+    } else {
+      // Review analysis failure is non-fatal — continue without reviews
+      reviewStep.status = "completed";
+      reviewStep.outputSummary = reviewAnalysisResult.outputSummary;
+    }
+  } catch (err: unknown) {
+    // Unexpected error — non-fatal, continue without reviews
+    reviewStep.completedAt = Date.now();
+    reviewStep.status = "completed";
+
+    const errorMessage =
+      err instanceof Error ? err.message : "Unexpected review analysis error";
+    reviewStep.outputSummary = `Review analysis skipped: ${errorMessage}.`;
+  }
+
   // --- Execute run_decision ---
 
   const decisionStep = steps.find((s) => s.tool === "run_decision");
@@ -182,6 +235,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         parsedIntent: input.intent,
         steps,
         catalogSearchResult: catalogResult,
+        reviewAnalysisResult,
         decisionResult: decisionToolResult,
         error: decisionToolResult.error,
       };
@@ -201,6 +255,8 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       parsedIntent: input.intent,
       steps,
       catalogSearchResult: catalogResult,
+      reviewAnalysisResult,
+      decisionResult: decisionToolResult,
       error: errorMessage,
     };
   }
@@ -242,6 +298,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         parsedIntent: input.intent,
         steps,
         catalogSearchResult: catalogResult,
+        reviewAnalysisResult,
         decisionResult: decisionToolResult,
         comparisonResult,
       };
@@ -255,6 +312,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         parsedIntent: input.intent,
         steps,
         catalogSearchResult: catalogResult,
+        reviewAnalysisResult,
         decisionResult: decisionToolResult,
         comparisonResult,
         error: comparisonResult.error,
@@ -275,6 +333,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       parsedIntent: input.intent,
       steps,
       catalogSearchResult: catalogResult,
+      reviewAnalysisResult,
       decisionResult: decisionToolResult,
       error: errorMessage,
     };

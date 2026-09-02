@@ -222,7 +222,7 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     expect(result.decisionResult!.decisionResult!.scoredProducts.length).toBeGreaterThan(0);
   });
 
-  it("step order remains: search_catalog → run_decision → compare_products", async () => {
+  it("step order remains: search_catalog → analyze_reviews → run_decision → compare_products", async () => {
     fetchProductsMock.mockResolvedValue({
       products: mockProducts,
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -233,15 +233,16 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput());
 
-    expect(result.steps).toHaveLength(3);
+    expect(result.steps).toHaveLength(4);
     expect(result.steps.map((s) => s.tool)).toEqual([
       "search_catalog",
+      "analyze_reviews",
       "run_decision",
       "compare_products",
     ]);
   });
 
-  it("includes 3 steps in the plan", async () => {
+  it("includes 4 steps in the plan", async () => {
     fetchProductsMock.mockResolvedValue({
       products: [],
       provider: { id: "demo-catalog", label: "Demo Catalog" },
@@ -252,7 +253,7 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput());
 
-    expect(result.steps).toHaveLength(3);
+    expect(result.steps).toHaveLength(4);
   });
 
   it("returns 'failed' for missing intent", async () => {

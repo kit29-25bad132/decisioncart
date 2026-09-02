@@ -25,6 +25,8 @@ import { EmptyResultPanel } from "./EmptyResultPanel";
 import { CompareTopProducts } from "./CompareTopProducts";
 import type { ComparisonResult } from "@/engine/compare-helpers";
 import { AgentTracePanel } from "./AgentTracePanel";
+import { ReviewIntelligencePanel } from "./ReviewIntelligencePanel";
+import type { ProductReviewIntelligence } from "@/reviews/types";
 
 const DEFAULT_BUDGET_MAX = 35000;
 const INITIAL_CATEGORIES = [
@@ -68,6 +70,9 @@ export function DecisionWorkspace() {
   // --- Agent Result State ---
   const [agentResult, setAgentResult] = useState<AgentResult | null>(null);
   const [useAgentResult, setUseAgentResult] = useState(false);
+
+  // --- Review Intelligence State ---
+  const [reviewIntelligence, setReviewIntelligence] = useState<Record<string, ProductReviewIntelligence>>({});
 
   const categoryConfig = useMemo(() => {
     const result = resolveCategoryConfig(category);
@@ -249,6 +254,13 @@ export function DecisionWorkspace() {
         agent.status === "completed" &&
         agent.decisionResult?.success === true
       );
+
+      // Store review intelligence from agent result
+      if (agent?.reviewAnalysisResult?.success) {
+        setReviewIntelligence(agent.reviewAnalysisResult.reviews);
+      } else {
+        setReviewIntelligence({});
+      }
 
       // Reset inspection selection
       setSelectedProductId(null);
@@ -492,6 +504,13 @@ export function DecisionWorkspace() {
                 userPriorityLabels={priorityLabels}
                 isPurchaseSelected={selectedScored.product.id === validatedPurchaseId}
                 onSelectForPurchase={handleSelectForPurchase}
+              />
+            )}
+
+            {/* Review Intelligence */}
+            {selectedScored && reviewIntelligence[selectedScored.product.id] && (
+              <ReviewIntelligencePanel
+                review={reviewIntelligence[selectedScored.product.id]}
               />
             )}
 
