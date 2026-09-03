@@ -16,6 +16,7 @@ import {
   purchaseStore,
   isApprovalExpired,
 } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 /**
  * POST /api/payment/create-order
@@ -107,7 +108,15 @@ export async function POST(request: NextRequest) {
     // --- 5. Check approval expiry ---
     if (purchase.approvedAt === null || isApprovalExpired(purchase.approvedAt)) {
       // Expire the purchase record
+      const prev = purchase.state;
       purchaseStore.expire(purchaseId.trim());
+      getPurchaseRepository().createAuditEvent(
+        purchaseId.trim(),
+        "PURCHASE_EXPIRED",
+        prev,
+        "EXPIRED",
+        { reason: "approval_expired" }
+      );
       return NextResponse.json(
         { success: false, error: "Purchase approval has expired. Please approve again." },
         { status: 410 }
@@ -128,6 +137,13 @@ export async function POST(request: NextRequest) {
     let purchaseRecord;
     try {
       purchaseRecord = purchaseStore.setRazorpayOrder(purchaseId.trim(), "pending");
+      getPurchaseRepository().createAuditEvent(
+        purchaseId.trim(),
+        "RAZORPAY_ORDER_CREATED",
+        "APPROVED",
+        "ORDER_CREATED",
+        { productId: productId.trim(), category: category.trim() }
+      );
     } catch {
       return NextResponse.json(
         {
@@ -198,6 +214,13 @@ export async function POST(request: NextRequest) {
       // VALID_TRANSITIONS[ORDER_CREATED] includes FAILED.
       try {
         purchaseStore.fail(purchaseId.trim());
+        getPurchaseRepository().createAuditEvent(
+          purchaseId.trim(),
+          "RAZORPAY_ORDER_FAILED",
+          "ORDER_CREATED",
+          "FAILED",
+          { reason: "razorpay_order_creation_failed" }
+        );
       } catch (failError: unknown) {
         // If even the FAIL transition fails, log but still return error.
         console.error("Failed to transition purchase to FAILED state:", failError);

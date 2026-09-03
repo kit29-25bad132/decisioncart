@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { purchaseStore } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 /**
  * POST /api/payment/verify
@@ -163,7 +164,21 @@ export async function POST(request: NextRequest) {
         purchase.purchaseId,
         razorpay_payment_id.trim()
       );
+      getPurchaseRepository().createAuditEvent(
+        purchase.purchaseId,
+        "PAYMENT_VERIFIED",
+        "ORDER_CREATED",
+        "PAID",
+        { razorpayOrderId: razorpay_order_id.trim() }
+      );
+
       purchaseStore.complete(purchase.purchaseId);
+      getPurchaseRepository().createAuditEvent(
+        purchase.purchaseId,
+        "PURCHASE_COMPLETED",
+        "PAID",
+        "DONE"
+      );
     } catch (err) {
       console.error("Failed to update purchase state after payment verification:", err);
       return NextResponse.json(

@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { purchaseStore } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 /**
  * POST /api/purchase/approve
@@ -72,9 +73,19 @@ export async function POST(request: NextRequest) {
     }
 
     // --- 5. Perform the approval (server generates timestamps + expiry) ---
+    const previousState = purchase.state;
     const approved = purchaseStore.approve(purchaseId.trim());
 
-    // --- 6. Return approval details ---
+    // --- 6. Log audit event ---
+    getPurchaseRepository().createAuditEvent(
+      approved.purchaseId,
+      "PURCHASE_APPROVED",
+      previousState,
+      "APPROVED",
+      { expiresAt: approved.expiresAt }
+    );
+
+    // --- 7. Return approval details ---
     return NextResponse.json({
       success: true,
       purchaseId: approved.purchaseId,

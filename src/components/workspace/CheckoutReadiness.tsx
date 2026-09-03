@@ -143,6 +143,25 @@ function formatRemaining(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+/** Format audit event type into human-readable label. */
+function formatAuditEventType(type: string): string {
+  const labels: Record<string, string> = {
+    PURCHASE_CREATED: "Purchase created",
+    PURCHASE_CONFIRMED: "Purchase confirmed",
+    PURCHASE_APPROVED: "Purchase approved",
+    PRICE_VERIFIED: "Price verified",
+    RAZORPAY_ORDER_CREATED: "Payment order created",
+    RAZORPAY_ORDER_FAILED: "Payment order failed",
+    PAYMENT_VERIFIED: "Payment verified",
+    PURCHASE_COMPLETED: "Purchase completed",
+    PURCHASE_FAILED: "Purchase failed",
+    PURCHASE_EXPIRED: "Purchase expired",
+    PURCHASE_CANCELLED: "Purchase cancelled",
+    RECEIPT_GENERATED: "Receipt generated",
+  };
+  return labels[type] ?? type;
+}
+
 export function CheckoutReadiness({
   scoredProduct,
   confidence,
@@ -159,6 +178,14 @@ export function CheckoutReadiness({
     source?: string;
   } | null>(null);
   const [downloadingReceipt, setDownloadingReceipt] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<{
+    eventId: string;
+    eventType: string;
+    timestamp: number;
+    previousState: string | null;
+    resultingState: string;
+    metadata: Record<string, unknown>;
+  }[]>([]);
 
   // --- Approval Expiry Timer ---
   const [approvalTimeRemaining, setApprovalTimeRemaining] = useState<number | null>(null);
@@ -224,6 +251,22 @@ export function CheckoutReadiness({
         approvalTimerRef.current = null;
       }
     };
+  }, [status]);
+
+  // Fetch audit events when payment succeeds
+  useEffect(() => {
+    if (status !== "success" || !purchaseIdRef.current) return;
+
+    fetch(`/api/purchase/${purchaseIdRef.current}/audit`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.events)) {
+          setAuditEvents(data.events);
+        }
+      })
+      .catch(() => {
+        // Non-fatal: audit trail is optional
+      });
   }, [status]);
 
   function handleReturnToDecision() {
@@ -747,6 +790,50 @@ export function CheckoutReadiness({
             </li>
           </ul>
         </div>
+
+        {/* Secure Purchase Timeline */}
+        {auditEvents.length > 0 && (
+          <div className="mb-5">
+            <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-3">
+              Secure Purchase Timeline
+            </p>
+            <div className="space-y-0">
+              {auditEvents.map((event, idx) => {
+                const isLast = idx === auditEvents.length - 1;
+                const time = new Date(event.timestamp);
+                const timeStr = time.toLocaleTimeString("en-IN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                });
+                return (
+                  <div key={event.eventId} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center shrink-0">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1" />
+                      {!isLast && <div className="w-px h-5 bg-zinc-200" />}
+                    </div>
+                    <div className="pb-3 min-w-0">
+                      <p className="text-xs font-medium text-zinc-700">
+                        {formatAuditEventType(event.eventType)}
+                      </p>
+                      <p className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                        {timeStr}
+                        {event.previousState && (
+                          <span className="text-zinc-300">
+                            {" · "}{event.previousState} → {event.resultingState}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-zinc-300 mt-2 italic">
+              Purchase lifecycle record · Server-authoritative
+            </p>
+          </div>
+        )}
 
         {/* Download Receipt Button */}
         <button

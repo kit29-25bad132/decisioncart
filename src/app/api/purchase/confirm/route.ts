@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { purchaseStore } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 /**
  * POST /api/purchase/confirm
@@ -72,9 +73,18 @@ export async function POST(request: NextRequest) {
     }
 
     // --- 5. Perform the transition ---
+    const previousState = purchase.state;
     const updated = purchaseStore.updateState(purchaseId.trim(), "CONFIRMING");
 
-    // --- 6. Return updated state ---
+    // --- 6. Log audit event ---
+    getPurchaseRepository().createAuditEvent(
+      updated.purchaseId,
+      "PURCHASE_CONFIRMED",
+      previousState,
+      "CONFIRMING"
+    );
+
+    // --- 7. Return updated state ---
     return NextResponse.json({
       success: true,
       purchaseId: updated.purchaseId,

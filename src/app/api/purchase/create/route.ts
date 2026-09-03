@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCatalog } from "@/catalog/demo-data";
 import { purchaseStore } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 /**
  * POST /api/purchase/create
@@ -73,7 +74,16 @@ export async function POST(request: NextRequest) {
     // --- 5. Create purchase in PurchaseStore ---
     const record = purchaseStore.create(purchaseId, product.id);
 
-    // --- 6. Return purchase info ---
+    // --- 6. Log audit event ---
+    getPurchaseRepository().createAuditEvent(
+      record.purchaseId,
+      "PURCHASE_CREATED",
+      null,
+      "DECIDED",
+      { productId: product.id, category: product.category }
+    );
+
+    // --- 7. Return purchase info ---
     return NextResponse.json({
       success: true,
       purchaseId: record.purchaseId,

@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCatalog } from "@/catalog/demo-data";
 import { purchaseStore } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 // --- Receipt Data Types ---
 
@@ -170,7 +171,16 @@ export async function POST(request: NextRequest) {
       dataSource: "DecisionCart demo catalog",
     };
 
-    // --- 8. Return receipt data (no secrets exposed) ---
+    // --- 8. Log audit event ---
+    getPurchaseRepository().createAuditEvent(
+      purchase.purchaseId,
+      "RECEIPT_GENERATED",
+      "DONE",
+      "DONE",
+      { productName: trustedProduct.name, trustedAmount: trustedProduct.price }
+    );
+
+    // --- 9. Return receipt data (no secrets exposed) ---
     return NextResponse.json({
       success: true,
       receipt,
