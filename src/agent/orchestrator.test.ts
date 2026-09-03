@@ -233,13 +233,14 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput());
 
-    expect(result.steps).toHaveLength(5);
+    expect(result.steps).toHaveLength(6);
     expect(result.steps.map((s) => s.tool)).toEqual([
       "search_catalog",
       "analyze_reviews",
       "run_decision",
       "relax_constraints",
       "compare_products",
+      "verify_purchase",
     ]);
   });
 
@@ -254,7 +255,7 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     const { runAgent } = await import("./orchestrator");
     const result = await runAgent(makeInput());
 
-    expect(result.steps).toHaveLength(5);
+    expect(result.steps).toHaveLength(6);
   });
 
   it("returns 'failed' for missing intent", async () => {

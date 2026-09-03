@@ -125,6 +125,7 @@ type CheckoutStatus =
   | "confirming"
   | "approving"
   | "approved"
+  | "verifying_price"
   | "creating"
   | "opening"
   | "cancelled"
@@ -152,6 +153,11 @@ export function CheckoutReadiness({
   const [errorMessage, setErrorMessage] = useState("");
   const [paymentDetails, setPaymentDetails] =
     useState<VerifiedPaymentDetails | null>(null);
+  const [verificationResult, setVerificationResult] = useState<{
+    verifiedPrice?: number;
+    available?: boolean;
+    source?: string;
+  } | null>(null);
 
   // --- Approval Expiry Timer ---
   const [approvalTimeRemaining, setApprovalTimeRemaining] = useState<number | null>(null);
@@ -397,6 +403,38 @@ export function CheckoutReadiness({
       // Server response is the source of truth for approval state
       approvalExpiresAtRef.current = approveData.expiresAt;
       setApprovalTimeRemaining(approveData.expiresAt - Date.now());
+
+      // --- Price & Inventory Verification ---
+      setStatus("verifying_price");
+      try {
+        const verifyResponse = await fetch("/api/purchase/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            productId: product.id,
+            category: product.category,
+            clientPrice: product.price,
+          }),
+        });
+
+        const verifyData = await verifyResponse.json();
+
+        if (!verifyResponse.ok || !verifyData.success) {
+          throw new Error(
+            verifyData.error || "Product verification failed."
+          );
+        }
+
+        setVerificationResult({
+          verifiedPrice: verifyData.verifiedPrice,
+          available: verifyData.available,
+          source: verifyData.source,
+        });
+      } catch (verifyErr: unknown) {
+        // Verification failure blocks the purchase for safety
+        throw verifyErr;
+      }
+
       setStatus("approved");
 
       // Load Razorpay SDK
@@ -768,7 +806,7 @@ export function CheckoutReadiness({
 
         {/* Decision Info */}
         <div className="bg-zinc-50 rounded-xl p-4 mb-5">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-2">
             <span className="text-xs font-medium text-zinc-500">
               Decision Confidence
             </span>
@@ -776,6 +814,37 @@ export function CheckoutReadiness({
               {confidence.score}%
             </span>
           </div>
+          {verificationResult && (
+            <div className="mt-2 pt-2 border-t border-zinc-100 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-xs text-zinc-600">
+                  Product verified from trusted catalog
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-xs text-zinc-600">
+                  Price verified: ₹{verificationResult.verifiedPrice?.toLocaleString() ?? product.price.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-xs text-zinc-600">
+                  Ready for secure payment
+                </span>
+              </div>
+              <p className="text-[10px] text-zinc-400 mt-1">
+                Verified against {verificationResult.source ?? "DecisionCart demo catalog"}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Error Message */}
@@ -908,6 +977,43 @@ export function CheckoutReadiness({
           </h3>
           <p className="text-xs text-zinc-500 mt-1">
             Setting up your purchase record on the server.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- VERIFYING PRICE: Verification in progress ---
+  if (status === "verifying_price") {
+    return (
+      <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
+        <div className="flex flex-col items-center text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 mb-3 border border-blue-100">
+            <svg
+              className="animate-spin h-6 w-6 text-blue-600"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            Verifying product and price...
+          </h3>
+          <p className="text-xs text-zinc-500 mt-1">
+            Checking against trusted catalog data.
           </p>
         </div>
       </div>

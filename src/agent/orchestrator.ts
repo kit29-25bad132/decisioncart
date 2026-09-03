@@ -17,6 +17,7 @@ import { executeReviewAnalyzer } from "./tools/review-analyzer";
 import { executeDecisionRunner } from "./tools/decision-runner";
 import { executeConstraintRelaxation } from "./tools/constraint-relaxation";
 import { executeProductComparison } from "./tools/product-comparison";
+import { executePriceInventoryCheck } from "./tools/price-inventory-check";
 import { resolveCategoryConfig } from "@/catalog/category-resolver";
 
 // --- Deterministic Step Plan ---
@@ -37,6 +38,7 @@ const DEFAULT_STEP_PLAN: StepPlanEntry[] = [
   { tool: "run_decision", label: "Run deterministic decision engine" },
   { tool: "relax_constraints", label: "Explore constraint alternatives" },
   { tool: "compare_products", label: "Compare top products and generate insights" },
+  { tool: "verify_purchase", label: "Verify product price and availability" },
 ];
 
 // --- ID Generation ---
@@ -372,29 +374,22 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   comparisonStep.startedAt = Date.now();
   comparisonStep.inputSummary = buildComparisonInputSummary(decisionToolResult);
 
+  let comparisonResult: import("./agent-types").ProductComparisonResult = {
+    success: true,
+    comparison: undefined,
+    productCount: 0,
+    outputSummary: "Comparison not executed.",
+  };
+
   try {
-    const comparisonResult = await executeProductComparison({
+    comparisonResult = await executeProductComparison({
       decisionToolResult,
     });
 
     // Transition: running → completed or failed
     comparisonStep.completedAt = Date.now();
 
-    if (comparisonResult.success) {
-      comparisonStep.status = "completed";
-      comparisonStep.outputSummary = comparisonResult.outputSummary;
-
-      return {
-        status: "completed",
-        parsedIntent: input.intent,
-        steps,
-        catalogSearchResult: catalogResult,
-        reviewAnalysisResult,
-        decisionResult: decisionToolResult,
-        relaxationResult,
-        comparisonResult,
-      };
-    } else {
+    if (!comparisonResult.success) {
       comparisonStep.status = "failed";
       comparisonStep.error = comparisonResult.error;
       comparisonStep.outputSummary = comparisonResult.outputSummary;
@@ -411,6 +406,9 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         error: comparisonResult.error,
       };
     }
+
+    comparisonStep.status = "completed";
+    comparisonStep.outputSummary = comparisonResult.outputSummary;
   } catch (err: unknown) {
     // Unexpected error — should not happen since executeProductComparison catches internally
     comparisonStep.completedAt = Date.now();
@@ -432,6 +430,97 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       error: errorMessage,
     };
   }
+
+  // --- Execute verify_purchase (verify top-ranked product) ---
+
+  const verifyStep = steps.find((s) => s.tool === "verify_purchase");
+
+  if (!verifyStep) {
+    // Verification step missing — non-fatal, skip
+  } else {
+    // Determine which product to verify: top-ranked from decision, or first catalog product
+    const topScored = decisionToolResult.decisionResult?.scoredProducts?.[0];
+    const verifyProductId = topScored?.product?.id ?? catalogResult.products[0]?.id;
+    const verifyCategory = decisionToolResult.effectiveCategory || input.category || input.intent.category || "";
+
+    if (verifyProductId && verifyCategory) {
+      // Transition: pending → running
+      verifyStep.status = "running";
+      verifyStep.startedAt = Date.now();
+      verifyStep.inputSummary = `productId="${verifyProductId}", category="${verifyCategory}"`;
+
+      try {
+        const verifyResult = await executePriceInventoryCheck({
+          productId: verifyProductId,
+          category: verifyCategory,
+        });
+
+        // Transition: running → completed or failed
+        verifyStep.completedAt = Date.now();
+
+        if (verifyResult.success) {
+          verifyStep.status = "completed";
+          verifyStep.outputSummary =
+            `Price verified: ₹${verifyResult.verifiedPrice?.toLocaleString() ?? "unknown"}, ` +
+            `Availability: ${verifyResult.available ? "Available" : "Unknown"}`;
+        } else {
+          // Verification failure is non-fatal — we still return the result
+          verifyStep.status = "completed";
+          verifyStep.outputSummary = `Verification failed: ${verifyResult.error}`;
+        }
+
+        return {
+          status: "completed",
+          parsedIntent: input.intent,
+          steps,
+          catalogSearchResult: catalogResult,
+          reviewAnalysisResult,
+          decisionResult: decisionToolResult,
+          relaxationResult,
+          comparisonResult,
+          priceInventoryResult: verifyResult,
+        };
+      } catch (err: unknown) {
+        // Unexpected error — non-fatal
+        verifyStep.completedAt = Date.now();
+        verifyStep.status = "completed";
+
+        const errorMessage =
+          err instanceof Error ? err.message : "Unexpected verification error";
+        verifyStep.outputSummary = `Verification skipped: ${errorMessage}.`;
+
+        return {
+          status: "completed",
+          parsedIntent: input.intent,
+          steps,
+          catalogSearchResult: catalogResult,
+          reviewAnalysisResult,
+          decisionResult: decisionToolResult,
+          relaxationResult,
+          comparisonResult,
+        };
+      }
+    } else {
+      // No product to verify — skip
+      verifyStep.status = "skipped";
+      verifyStep.startedAt = Date.now();
+      verifyStep.completedAt = Date.now();
+      verifyStep.inputSummary = "No product available to verify";
+      verifyStep.outputSummary = "Verification skipped: no product to verify.";
+    }
+  }
+
+  // Final return if verification was skipped or missing
+  return {
+    status: "completed",
+    parsedIntent: input.intent,
+    steps,
+    catalogSearchResult: catalogResult,
+    reviewAnalysisResult,
+    decisionResult: decisionToolResult,
+    relaxationResult,
+    comparisonResult,
+  };
 }
 
 // --- Internal Helpers ---

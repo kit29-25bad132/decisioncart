@@ -1,7 +1,8 @@
 // ============================================================
 // DecisionCart — Agent Tools Index
 // Minimal registry of bounded agent tools.
-// search_catalog (Step 2), run_decision (Step 3), compare_products (Step 4).
+// search_catalog, analyze_reviews, run_decision, compare_products,
+// verify_purchase (price & inventory check).
 // ============================================================
 
 export { executeCatalogSearch } from "./catalog-search";
@@ -12,3 +13,6 @@ export type { DecisionRunnerInput } from "./decision-runner";
 
 export { executeProductComparison } from "./product-comparison";
 export type { ProductComparisonInput } from "./product-comparison";
+
+export { executePriceInventoryCheck } from "./price-inventory-check";
+export type { PriceInventoryCheckInput } from "./price-inventory-check";

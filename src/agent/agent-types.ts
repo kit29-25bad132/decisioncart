@@ -172,6 +172,44 @@ export interface ProductComparisonResult {
   error?: string;
 }
 
+// --- Price & Inventory Check Result ---
+
+/** Details when client price differs from trusted price. */
+export interface PriceMismatchDetail {
+  /** Price reported by the client. */
+  clientPrice: number;
+  /** Price resolved from the trusted server-side catalog. */
+  trustedPrice: number;
+  /** Difference (trusted - client). Positive means trusted is higher. */
+  difference: number;
+}
+
+/** Typed result from the verify_purchase (check_price_inventory) bounded tool. */
+export interface PriceInventoryCheckToolResult {
+  /** Whether the verification succeeded (product found and verified). */
+  success: boolean;
+  /** The verified product ID. */
+  productId: string;
+  /** Trusted server-side price. Only present on success. */
+  verifiedPrice?: number;
+  /** Currency code (e.g. "INR"). */
+  currency?: string;
+  /** Whether the product is available. */
+  available?: boolean;
+  /** Source of availability data (e.g. "demo-catalog", "merchant-api"). */
+  availabilitySource?: string;
+  /** ISO 8601 timestamp of when verification was performed. */
+  checkedAt: string;
+  /** Trusted data source label (e.g. "DecisionCart demo catalog"). */
+  source: string;
+  /** Present when client-reported price differs from trusted price. */
+  priceMismatch?: PriceMismatchDetail;
+  /** Human-readable summary of the verification result. */
+  outputSummary?: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Agent Result ---
 
 /**
@@ -195,6 +233,8 @@ export interface AgentResult {
   relaxationResult?: ConstraintRelaxationToolResult;
   /** Typed result from the product comparison tool, if executed. */
   comparisonResult?: ProductComparisonResult;
+  /** Typed result from the price inventory check tool, if executed. */
+  priceInventoryResult?: PriceInventoryCheckToolResult;
   /** Error message if the agent run failed. */
   error?: string;
 }
