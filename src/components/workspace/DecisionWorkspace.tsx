@@ -303,6 +303,10 @@ export function DecisionWorkspace() {
       setPurchaseProductId(null);
       setSelectedOfferId(null);
       setOfferSelectionConfirmed(false);
+      setAgentSteps([]);
+      setAgentStatus(null);
+      setAgentError(null);
+      setAgentResult(null);
       setBudget({ max: newCategory === "laptop" ? 60000 : DEFAULT_BUDGET_MAX });
     },
     []

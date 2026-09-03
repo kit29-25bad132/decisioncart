@@ -9,6 +9,7 @@ import type {
   AgentResult,
   AgentStep,
   AgentToolName,
+  QueryMode,
   ToolStepStatus,
 } from "./agent-types";
 import type { Product } from "@/types";
@@ -42,6 +43,47 @@ const DEFAULT_STEP_PLAN: StepPlanEntry[] = [
   { tool: "compare_products", label: "Compare top products and generate insights" },
   { tool: "verify_purchase", label: "Verify product price and availability" },
 ];
+
+// --- Query Mode Classification ---
+
+/**
+ * Purchase-related keywords that indicate the user intends to buy.
+ */
+const PURCHASE_KEYWORDS = /\b(?:buy|purchase|order|get me|checkout|pay|add to cart|want to buy|looking to buy)\b/i;
+
+/**
+ * Comparison-related keywords that indicate the user wants to compare products.
+ */
+const COMPARE_KEYWORDS = /\b(?:compare|versus|vs\.?|difference between|which is better|which one|pros and cons|trade.?offs?)\b/i;
+
+/**
+ * Classify the user's query intent into a mode.
+ * Deterministic — no LLM call. Based solely on parsed intent signals.
+ *
+ * - purchase: user wants to buy (has budget + constraints, or explicit buy language)
+ * - compare: user wants to compare products (explicit comparison language)
+ * - explore: general recommendation, research, or informational query
+ */
+export function classifyQueryMode(
+  intent: import("@/lib/ai/types").ParsedShoppingIntent
+): QueryMode {
+  const hasBudget = intent.budget?.max !== undefined || intent.budget?.min !== undefined;
+  const originalQuery = intent.originalQuery ?? "";
+
+  // Purchase signals: explicit buy language, or meaningful budget (with or without constraints)
+  const hasPurchaseLanguage = PURCHASE_KEYWORDS.test(originalQuery);
+  if (hasPurchaseLanguage || hasBudget) {
+    return "purchase";
+  }
+
+  // Compare signals: explicit comparison language
+  if (COMPARE_KEYWORDS.test(originalQuery)) {
+    return "compare";
+  }
+
+  // Default: explore
+  return "explore";
+}
 
 // --- ID Generation ---
 
@@ -79,6 +121,9 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
   }
 
+  // Classify query intent to adapt execution plan
+  const queryMode = classifyQueryMode(input.intent);
+
   // Build the execution plan — all steps start as pending.
   const steps = buildSteps(DEFAULT_STEP_PLAN);
 
@@ -99,7 +144,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   // Transition: pending → running
   searchStep.status = "running";
   searchStep.startedAt = Date.now();
-  searchStep.inputSummary = buildSearchInputSummary(input);
+  searchStep.inputSummary = `Mode: ${queryMode} — ${buildSearchInputSummary(input)}`;
 
   let catalogResult;
   try {
@@ -436,6 +481,13 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
 
   // --- Execute compare_products ---
 
+  let comparisonResult: import("./agent-types").ProductComparisonResult = {
+    success: true,
+    comparison: undefined,
+    productCount: 0,
+    outputSummary: "Comparison not executed.",
+  };
+
   const comparisonStep = steps.find((s) => s.tool === "compare_products");
 
   if (!comparisonStep) {
@@ -450,30 +502,58 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
   }
 
-  // Transition: pending → running
-  comparisonStep.status = "running";
-  comparisonStep.startedAt = Date.now();
-  comparisonStep.inputSummary = buildComparisonInputSummary(decisionToolResult);
-
-  let comparisonResult: import("./agent-types").ProductComparisonResult = {
-    success: true,
-    comparison: undefined,
-    productCount: 0,
-    outputSummary: "Comparison not executed.",
-  };
-
-  try {
-    comparisonResult = await executeProductComparison({
-      decisionToolResult,
-    });
-
-    // Transition: running → completed or failed
+  // Adaptive skip: comparison requires at least 2 scored products
+  const scoredProductCount = decisionToolResult.decisionResult?.scoredProducts?.length ?? 0;
+  if (scoredProductCount < 2) {
+    comparisonStep.status = "skipped";
+    comparisonStep.startedAt = Date.now();
     comparisonStep.completedAt = Date.now();
+    comparisonStep.inputSummary = `${scoredProductCount} scored product${scoredProductCount === 1 ? "" : "s"} — mode="${queryMode}"`;
+    comparisonStep.outputSummary = `Skipped: fewer than two products available for meaningful comparison`;
+  } else {
+    // Transition: pending → running
+    comparisonStep.status = "running";
+    comparisonStep.startedAt = Date.now();
+    comparisonStep.inputSummary = `${buildComparisonInputSummary(decisionToolResult)} — mode="${queryMode}"`;
 
-    if (!comparisonResult.success) {
-      comparisonStep.status = "failed";
-      comparisonStep.error = comparisonResult.error;
+    try {
+      comparisonResult = await executeProductComparison({
+        decisionToolResult,
+      });
+
+      // Transition: running → completed or failed
+      comparisonStep.completedAt = Date.now();
+
+      if (!comparisonResult.success) {
+        comparisonStep.status = "failed";
+        comparisonStep.error = comparisonResult.error;
+        comparisonStep.outputSummary = comparisonResult.outputSummary;
+
+        return {
+          status: "failed",
+          parsedIntent: input.intent,
+          steps,
+          catalogSearchResult: catalogResult,
+          reviewAnalysisResult,
+          decisionResult: decisionToolResult,
+          merchantOffersResult,
+          relaxationResult,
+          comparisonResult,
+          error: comparisonResult.error,
+        };
+      }
+
+      comparisonStep.status = "completed";
       comparisonStep.outputSummary = comparisonResult.outputSummary;
+    } catch (err: unknown) {
+      // Unexpected error — should not happen since executeProductComparison catches internally
+      comparisonStep.completedAt = Date.now();
+      comparisonStep.status = "failed";
+
+      const errorMessage =
+        err instanceof Error ? err.message : "Unexpected comparison error";
+      comparisonStep.error = errorMessage;
+      comparisonStep.outputSummary = `Comparison failed: ${errorMessage}.`;
 
       return {
         status: "failed",
@@ -484,34 +564,9 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         decisionResult: decisionToolResult,
         merchantOffersResult,
         relaxationResult,
-        comparisonResult,
-        error: comparisonResult.error,
+        error: errorMessage,
       };
     }
-
-    comparisonStep.status = "completed";
-    comparisonStep.outputSummary = comparisonResult.outputSummary;
-  } catch (err: unknown) {
-    // Unexpected error — should not happen since executeProductComparison catches internally
-    comparisonStep.completedAt = Date.now();
-    comparisonStep.status = "failed";
-
-    const errorMessage =
-      err instanceof Error ? err.message : "Unexpected comparison error";
-    comparisonStep.error = errorMessage;
-    comparisonStep.outputSummary = `Comparison failed: ${errorMessage}.`;
-
-    return {
-      status: "failed",
-      parsedIntent: input.intent,
-      steps,
-      catalogSearchResult: catalogResult,
-      reviewAnalysisResult,
-      decisionResult: decisionToolResult,
-      merchantOffersResult,
-      relaxationResult,
-      error: errorMessage,
-    };
   }
 
   // --- Execute verify_purchase (verify top-ranked product) ---
@@ -520,6 +575,13 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
 
   if (!verifyStep) {
     // Verification step missing — non-fatal, skip
+  } else if (queryMode !== "purchase") {
+    // Adaptive skip: purchase verification is only relevant for purchase-oriented queries
+    verifyStep.status = "skipped";
+    verifyStep.startedAt = Date.now();
+    verifyStep.completedAt = Date.now();
+    verifyStep.inputSummary = `queryMode="${queryMode}"`;
+    verifyStep.outputSummary = `Skipped: purchase verification is not needed for a${queryMode === "explore" ? "n exploration" : " comparison"} query`;
   } else {
     // Determine which product to verify: top-ranked from decision, or first catalog product
     const topScored = decisionToolResult.decisionResult?.scoredProducts?.[0];

@@ -59,7 +59,8 @@ function makeIntent(overrides: Partial<ParsedShoppingIntent> = {}): ParsedShoppi
     priorities: [{ attributeKey: "ram_gb", importance: 2 }],
     constraints: [],
     confidence: 0.8,
-    originalQuery: "best smartphone under 30000",
+    originalQuery: "buy a smartphone under 30000",
+    budget: { max: 30000 },
     ...overrides,
   };
 }

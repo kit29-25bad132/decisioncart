@@ -49,7 +49,8 @@ function makeIntent(overrides: Partial<ParsedShoppingIntent> = {}): ParsedShoppi
     priorities: [],
     constraints: [],
     confidence: 0.8,
-    originalQuery: "best smartphone under 30000",
+    originalQuery: "buy a smartphone under 30000",
+    budget: { max: 30000 },
     ...overrides,
   };
 }
@@ -287,7 +288,7 @@ describe("runAgent — search_catalog + run_decision + compare_products lifecycl
     expect(decisionStep!.status).toBe("completed");
 
     const compareStep = result.steps.find((s) => s.tool === "compare_products");
-    expect(compareStep!.status).toBe("completed");
+    expect(compareStep!.status).toBe("skipped");
 
     expect(result.decisionResult).toBeDefined();
     expect(result.decisionResult!.success).toBe(true);

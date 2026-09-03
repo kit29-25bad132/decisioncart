@@ -13,6 +13,14 @@ import type { ProviderInfo } from "@/catalog/provider";
 /** High-level status of the entire agent execution. */
 export type AgentStatus = "idle" | "running" | "completed" | "failed";
 
+// --- Query Mode ---
+
+/**
+ * Deterministic classification of the user's query intent.
+ * Used to adapt which tools the agent executes.
+ */
+export type QueryMode = "explore" | "compare" | "purchase";
+
 // --- Tool Names ---
 
 /**
