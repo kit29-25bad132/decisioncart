@@ -18,6 +18,7 @@ import { executeDecisionRunner } from "./tools/decision-runner";
 import { executeConstraintRelaxation } from "./tools/constraint-relaxation";
 import { executeProductComparison } from "./tools/product-comparison";
 import { executePriceInventoryCheck } from "./tools/price-inventory-check";
+import { executeMerchantOffers } from "./tools/merchant-offers";
 import { resolveCategoryConfig } from "@/catalog/category-resolver";
 
 // --- Deterministic Step Plan ---
@@ -36,6 +37,7 @@ const DEFAULT_STEP_PLAN: StepPlanEntry[] = [
   { tool: "search_catalog", label: "Search catalog for matching products" },
   { tool: "analyze_reviews", label: "Analyze product review intelligence" },
   { tool: "run_decision", label: "Run deterministic decision engine" },
+  { tool: "get_merchant_offers", label: "Evaluate merchant offers for ranked products" },
   { tool: "relax_constraints", label: "Explore constraint alternatives" },
   { tool: "compare_products", label: "Compare top products and generate insights" },
   { tool: "verify_purchase", label: "Verify product price and availability" },
@@ -268,6 +270,82 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
   }
 
+  // --- Execute get_merchant_offers (non-fatal: degraded on failure) ---
+
+  const merchantStep = steps.find((s) => s.tool === "get_merchant_offers");
+
+  if (!merchantStep) {
+    return {
+      status: "failed",
+      parsedIntent: input.intent,
+      steps,
+      catalogSearchResult: catalogResult,
+      reviewAnalysisResult,
+      decisionResult: decisionToolResult,
+      error: "Internal error: get_merchant_offers step not found in plan.",
+    };
+  }
+
+  let merchantOffersResult: import("./agent-types").MerchantOffersToolResult = {
+    success: true,
+    selectionsByProductId: {},
+    selectionCount: 0,
+    outputSummary: "Merchant offers evaluation skipped.",
+  };
+
+  // Only run merchant evaluation when decision engine has scored products
+  const hasScoredProducts =
+    decisionToolResult.success &&
+    decisionToolResult.decisionResult &&
+    decisionToolResult.decisionResult.scoredProducts.length > 0;
+
+  if (hasScoredProducts) {
+    // Transition: pending → running
+    merchantStep.status = "running";
+    merchantStep.startedAt = Date.now();
+
+    const scoredProducts = decisionToolResult.decisionResult!.scoredProducts.map(
+      (sp) => sp.product
+    );
+    merchantStep.inputSummary = `${scoredProducts.length} product${scoredProducts.length === 1 ? "" : "s"} ranked by decision engine`;
+
+    try {
+      merchantOffersResult = await executeMerchantOffers({
+        products: scoredProducts,
+        priorities: input.intent.priorities,
+      });
+
+      // Transition: running → completed (non-fatal on degraded)
+      merchantStep.completedAt = Date.now();
+
+      if (merchantOffersResult.success) {
+        merchantStep.status = "completed";
+        merchantStep.outputSummary = merchantOffersResult.outputSummary;
+      } else {
+        // Merchant evaluation failure is non-fatal — continue without merchant data
+        merchantStep.status = "completed";
+        merchantStep.degraded = true;
+        merchantStep.outputSummary = merchantOffersResult.outputSummary;
+      }
+    } catch (err: unknown) {
+      // Non-fatal: continue without merchant offers
+      merchantStep.completedAt = Date.now();
+      merchantStep.status = "completed";
+      merchantStep.degraded = true;
+
+      const errorMessage =
+        err instanceof Error ? err.message : "Unexpected merchant evaluation error";
+      merchantStep.outputSummary = `Merchant evaluation skipped: ${errorMessage}.`;
+    }
+  } else {
+    // Skip merchant step — no scored products to evaluate
+    merchantStep.status = "skipped";
+    merchantStep.startedAt = Date.now();
+    merchantStep.completedAt = Date.now();
+    merchantStep.inputSummary = "No scored products to evaluate";
+    merchantStep.outputSummary = "Merchant evaluation skipped: no scored products.";
+  }
+
   // --- Execute relax_constraints (conditional: only when zero results) ---
 
   const relaxationStep = steps.find((s) => s.tool === "relax_constraints");
@@ -367,6 +445,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       steps,
       catalogSearchResult: catalogResult,
       decisionResult: decisionToolResult,
+      merchantOffersResult,
       error: "Internal error: compare_products step not found in plan.",
     };
   }
@@ -403,6 +482,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         catalogSearchResult: catalogResult,
         reviewAnalysisResult,
         decisionResult: decisionToolResult,
+        merchantOffersResult,
         relaxationResult,
         comparisonResult,
         error: comparisonResult.error,
@@ -428,6 +508,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       catalogSearchResult: catalogResult,
       reviewAnalysisResult,
       decisionResult: decisionToolResult,
+      merchantOffersResult,
       relaxationResult,
       error: errorMessage,
     };
@@ -479,6 +560,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
           catalogSearchResult: catalogResult,
           reviewAnalysisResult,
           decisionResult: decisionToolResult,
+          merchantOffersResult,
           relaxationResult,
           comparisonResult,
           priceInventoryResult: verifyResult,
@@ -500,6 +582,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
           catalogSearchResult: catalogResult,
           reviewAnalysisResult,
           decisionResult: decisionToolResult,
+          merchantOffersResult,
           relaxationResult,
           comparisonResult,
         };
@@ -522,6 +605,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     catalogSearchResult: catalogResult,
     reviewAnalysisResult,
     decisionResult: decisionToolResult,
+    merchantOffersResult,
     relaxationResult,
     comparisonResult,
   };

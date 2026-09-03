@@ -24,6 +24,7 @@ export type AgentToolName =
   | "search_catalog"
   | "analyze_reviews"
   | "run_decision"
+  | "get_merchant_offers"
   | "relax_constraints"
   | "compare_products"
   | "verify_purchase";
@@ -212,6 +213,22 @@ export interface PriceInventoryCheckToolResult {
   error?: string;
 }
 
+// --- Merchant Offers Result ---
+
+/** Typed result from the get_merchant_offers bounded tool. */
+export interface MerchantOffersToolResult {
+  /** Whether the tool execution succeeded. */
+  success: boolean;
+  /** Merchant selections keyed by product ID. */
+  selectionsByProductId: Record<string, import("@/types").MerchantSelection>;
+  /** Number of products with merchant selections. */
+  selectionCount: number;
+  /** Human-readable summary of the merchant offers evaluation. */
+  outputSummary: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 // --- Agent Result ---
 
 /**
@@ -231,6 +248,8 @@ export interface AgentResult {
   decisionResult?: DecisionToolResult;
   /** Typed result from the review analysis tool, if executed. */
   reviewAnalysisResult?: ReviewAnalysisToolResult;
+  /** Typed result from the merchant offers tool, if executed. */
+  merchantOffersResult?: MerchantOffersToolResult;
   /** Typed result from the constraint relaxation tool, if executed. */
   relaxationResult?: ConstraintRelaxationToolResult;
   /** Typed result from the product comparison tool, if executed. */

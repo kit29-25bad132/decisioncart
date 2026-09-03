@@ -16,3 +16,6 @@ export type { ProductComparisonInput } from "./product-comparison";
 
 export { executePriceInventoryCheck } from "./price-inventory-check";
 export type { PriceInventoryCheckInput } from "./price-inventory-check";
+
+export { executeMerchantOffers } from "./merchant-offers";
+export type { MerchantOffersInput } from "./merchant-offers";
