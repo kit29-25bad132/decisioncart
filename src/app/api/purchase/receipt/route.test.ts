@@ -4,15 +4,16 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { NextRequest } from "next/server";
 import { purchaseStore } from "@/engine/purchase-state-machine";
 import { getCatalog } from "@/catalog/demo-data";
 import { POST as postReceipt } from "./route";
 
 // --- Helper: create a mock NextRequest ---
-function mockRequest(body: unknown): any {
+function mockRequest(body: unknown): NextRequest {
   return {
     json: async () => body,
-  } as any;
+  } as unknown as NextRequest;
 }
 
 // --- Helper: get a real productId from the catalog ---
@@ -301,7 +302,7 @@ describe("Receipt API — Missing Purchase", () => {
       json: async () => {
         throw new Error("Invalid JSON");
       },
-    } as any);
+    } as unknown as NextRequest);
     const data = await res.json();
 
     expect(data.success).toBe(false);

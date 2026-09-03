@@ -406,66 +406,6 @@ function generateTradeOffs(
   return tradeOffs;
 }
 
-// --- Scoring for Alternative Ranking ---
-
-/**
- * Score an alternative product based on how well it balances relaxation impact
- * and original preference alignment. Lower score = better alternative.
- */
-function scoreAlternative(
-  product: Product,
-  tradeOffs: TradeOffDetail[],
-  preference: UserPreference,
-  categoryConfig: CategoryConfig
-): number {
-  let score = 0;
-
-  // Penalty for each trade-off based on impact
-  for (const tradeOff of tradeOffs) {
-    switch (tradeOff.impact) {
-      case "high":   score += 10; break;
-      case "medium": score += 5; break;
-      case "low":    score += 1; break;
-    }
-  }
-
-  // Bonus for matching high-priority attributes
-  for (const priority of preference.priorities) {
-    if (priority.importance >= 3) {
-      const attrVal = extractNumericValue(product.attributes[priority.attributeKey]);
-      if (attrVal !== null) {
-        const attrConfig = categoryConfig.attributes.find(
-          (a) => a.key === priority.attributeKey
-        );
-        if (attrConfig) {
-          // Higher normalized value = better
-          const allVals = categoryConfig.attributes
-            .map((a) => extractNumericValue(product.attributes[a.key]))
-            .filter((v): v is number => v !== null);
-          const min = Math.min(...allVals);
-          const max = Math.max(...allVals);
-          const range = max - min;
-          if (range > 0) {
-            const normalized =
-              attrConfig.comparisonDirection === "higher_is_better"
-                ? (attrVal - min) / range
-                : (max - attrVal) / range;
-            score -= normalized * 3; // Up to 3 points bonus
-          }
-        }
-      }
-    }
-  }
-
-  // Bonus for lower price (value)
-  const maxBudget = preference.budget?.max ?? Infinity;
-  if (product.price <= maxBudget) {
-    score -= 2;
-  }
-
-  return score;
-}
-
 // --- Main Relaxation Engine ---
 
 /**
@@ -506,7 +446,7 @@ export function relaxConstraints(
   // 2. No exact matches — begin intelligent relaxation
 
   // 2a. Try budget relaxation first (bounded)
-  const budgetAlternatives = tryBudgetRelaxation(products, preference, categoryConfig);
+  const budgetAlternatives = tryBudgetRelaxation(products, preference);
 
   // 2b. Try individual attribute constraint relaxation
   const attributeAlternatives = tryAttributeRelaxation(
@@ -572,7 +512,6 @@ export function relaxConstraints(
 function tryBudgetRelaxation(
   products: Product[],
   preference: UserPreference,
-  categoryConfig: CategoryConfig
 ): RelaxedProduct[] {
   const results: RelaxedProduct[] = [];
 

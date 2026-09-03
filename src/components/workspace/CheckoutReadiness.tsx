@@ -3,9 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ScoredProduct, DecisionConfidence } from "@/types";
 import type { PurchaseState } from "@/engine/purchase-state-machine";
-import {
-  approvalRemainingMs,
-} from "@/engine/purchase-state-machine";
+
 
 /** Safe payment details stored after successful verification. */
 interface VerifiedPaymentDetails {

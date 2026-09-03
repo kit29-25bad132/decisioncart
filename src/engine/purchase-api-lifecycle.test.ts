@@ -10,19 +10,19 @@ import {
   purchaseStore,
   APPROVAL_EXPIRY_MS,
 } from "@/engine/purchase-state-machine";
-import type { PurchaseState } from "@/engine/purchase-state-machine";
 import { getCatalog } from "@/catalog/demo-data";
 import { POST as postCreate } from "@/app/api/purchase/create/route";
 import { POST as postConfirm } from "@/app/api/purchase/confirm/route";
 import { POST as postApprove } from "@/app/api/purchase/approve/route";
+import { NextRequest } from "next/server";
 import { POST as postCreateOrder } from "@/app/api/payment/create-order/route";
 import { POST as postVerify } from "@/app/api/payment/verify/route";
 
 // --- Helper: create a mock NextRequest ---
-function mockRequest(body: unknown): any {
+function mockRequest(body: unknown): NextRequest {
   return {
     json: async () => body,
-  } as any;
+  } as unknown as NextRequest;
 }
 
 // --- Helper: get a real productId from the catalog ---
@@ -384,7 +384,7 @@ describe("Payment Verification", () => {
   });
 
   it("verify handles repeated verification after DONE safely", async () => {
-    const purchase = purchaseStore.create("test-done-purchase", "phone-001");
+    purchaseStore.create("test-done-purchase", "phone-001");
     purchaseStore.updateState("test-done-purchase", "CONFIRMING");
     purchaseStore.approve("test-done-purchase");
     purchaseStore.setRazorpayOrder("test-done-purchase", "order_done_123");
@@ -502,7 +502,7 @@ describe("State Transition Error Handling", () => {
       json: async () => {
         throw new Error("Invalid JSON");
       },
-    } as any);
+    } as unknown as NextRequest);
     const data = await res.json();
 
     expect(data.success).toBe(false);

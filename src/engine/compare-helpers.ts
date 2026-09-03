@@ -136,7 +136,6 @@ export function compareTopProducts(
     products,
     attrComparisons,
     priorities,
-    weights
   );
 
   // Decision insight
@@ -145,14 +144,12 @@ export function compareTopProducts(
     runnerUp,
     attrComparisons,
     priorities,
-    weights
   );
 
   // Priority sensitivity
   const prioritySensitivity = generatePrioritySensitivity(
     scoredProducts,
     attributes,
-    priorities
   );
 
   return {
@@ -352,7 +349,6 @@ function generateBestForInsights(
   products: ComparedProduct[],
   _attrComparisons: AttributeComparison[],
   priorities: PriorityItem[],
-  _weights: Record<string, number>
 ): BestForInsight[] {
   const priorityMap = new Map(priorities.map((p) => [p.attributeKey, p.importance]));
 
@@ -397,7 +393,6 @@ function generateDecisionInsight(
   runnerUp: ComparedProduct | null,
   attrComparisons: AttributeComparison[],
   priorities: PriorityItem[],
-  _weights: Record<string, number>
 ): string {
   const priorityMap = new Map(priorities.map((p) => [p.attributeKey, p.importance]));
   const highPriorityAttrs = priorities
@@ -450,7 +445,6 @@ function generateDecisionInsight(
 function generatePrioritySensitivity(
   scoredProducts: ScoredProduct[],
   attributes: AttributeConfig[],
-  _currentPriorities: PriorityItem[]
 ): PrioritySensitivityItem[] {
   // For each attribute, compute what happens if it becomes the sole top priority
   const items: PrioritySensitivityItem[] = [];

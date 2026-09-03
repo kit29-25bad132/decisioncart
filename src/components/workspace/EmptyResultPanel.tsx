@@ -5,7 +5,7 @@ import type {
   ConstraintRelaxationSuggestion,
   ClosestMatch,
 } from "@/types";
-import type { ConstraintRelaxationResult, RelaxedProduct, RelaxedConstraint } from "@/engine/constraint-relaxation";
+import type { ConstraintRelaxationResult, RelaxedProduct } from "@/engine/constraint-relaxation";
 
 interface EmptyResultPanelProps {
   analysis: EmptyResultAnalysis;

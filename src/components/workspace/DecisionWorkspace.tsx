@@ -23,7 +23,6 @@ import { CheckoutReadiness } from "./CheckoutReadiness";
 import { DecisionInsightPanel } from "./DecisionInsightPanel";
 import { EmptyResultPanel } from "./EmptyResultPanel";
 import { CompareTopProducts } from "./CompareTopProducts";
-import type { ComparisonResult } from "@/engine/compare-helpers";
 import { AgentTracePanel } from "./AgentTracePanel";
 import { ReviewIntelligencePanel } from "./ReviewIntelligencePanel";
 import type { ProductReviewIntelligence } from "@/reviews/types";
