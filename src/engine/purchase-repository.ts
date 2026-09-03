@@ -32,7 +32,10 @@ export type AuditEventType =
   | "PURCHASE_FAILED"
   | "PURCHASE_EXPIRED"
   | "PURCHASE_CANCELLED"
-  | "RECEIPT_GENERATED";
+  | "RECEIPT_GENERATED"
+  | "OFFER_VERIFIED"
+  | "OFFER_PRICE_CHANGED"
+  | "MERCHANT_OFFER_SELECTED";
 
 /** A single audit event in the purchase lifecycle. */
 export interface AuditEvent {
@@ -61,7 +64,7 @@ export interface AuditEvent {
  */
 export interface PurchaseRepository {
   /** Create a new purchase in DECIDED state. */
-  createPurchase(purchaseId: string, productId: string): Promise<PurchaseRecord>;
+  createPurchase(purchaseId: string, productId: string, merchantOfferId?: string): Promise<PurchaseRecord>;
 
   /** Retrieve a purchase by ID. Returns null if not found. */
   getPurchase(purchaseId: string): Promise<PurchaseRecord | null>;
@@ -144,8 +147,8 @@ class InMemoryPurchaseRepository implements PurchaseRepository {
 
   // --- Purchase Operations ---
 
-  async createPurchase(purchaseId: string, productId: string): Promise<PurchaseRecord> {
-    return purchaseStore.create(purchaseId, productId);
+  async createPurchase(purchaseId: string, productId: string, merchantOfferId?: string): Promise<PurchaseRecord> {
+    return purchaseStore.create(purchaseId, productId, merchantOfferId);
   }
 
   async getPurchase(purchaseId: string): Promise<PurchaseRecord | null> {

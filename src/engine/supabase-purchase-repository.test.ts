@@ -18,6 +18,7 @@ let paymentsDb: Record<string, unknown>[] = [];
 
 // Default nullable fields for purchases
 const PURCHASE_DEFAULTS = {
+  merchant_offer_id: null,
   razorpay_order_id: null,
   razorpay_payment_id: null,
   approved_at: null,

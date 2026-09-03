@@ -41,6 +41,7 @@ function rowToPurchaseRecord(row: PurchaseRow): PurchaseRecord {
       : null,
     razorpayOrderId: row.razorpay_order_id,
     razorpayPaymentId: row.razorpay_payment_id,
+    merchantOfferId: row.merchant_offer_id ?? null,
   };
 }
 
@@ -75,7 +76,8 @@ export class SupabasePurchaseRepository implements PurchaseRepository {
 
   async createPurchase(
     purchaseId: string,
-    productId: string
+    productId: string,
+    merchantOfferId?: string
   ): Promise<PurchaseRecord> {
     const now = new Date().toISOString();
 
@@ -84,6 +86,7 @@ export class SupabasePurchaseRepository implements PurchaseRepository {
       .insert({
         id: purchaseId,
         product_id: productId,
+        merchant_offer_id: merchantOfferId ?? null,
         state: "DECIDED",
         created_at: now,
         updated_at: now,

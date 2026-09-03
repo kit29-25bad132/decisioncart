@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCatalog } from "@/catalog/demo-data";
 import { getPurchaseRepository } from "@/engine/purchase-repository";
+import { getMerchantRepository } from "@/merchant/merchant-repository";
 
 // --- Receipt Data Types ---
 
@@ -155,32 +156,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 7. Build trusted receipt data ---
+    // --- 7. Determine trusted amount (merchant offer or catalog) ---
+    let trustedAmount = trustedProduct.price;
+    let dataSource = "DecisionCart demo catalog";
+
+    // If purchase has a bound merchant offer, resolve price from the offer
+    if (purchase.merchantOfferId) {
+      const merchantRepo = await getMerchantRepository();
+      const offer = await merchantRepo.getOffer(purchase.merchantOfferId);
+      if (offer && offer.price > 0) {
+        trustedAmount = offer.price;
+        dataSource = "merchant-repository";
+      }
+    }
+
+    // --- 8. Build trusted receipt data ---
     const receipt: ReceiptData = {
       purchaseId: purchase.purchaseId,
       productId: trustedProduct.id,
       productName: trustedProduct.name,
       brand: trustedProduct.brand,
       category: trustedProduct.category,
-      trustedAmount: trustedProduct.price,
+      trustedAmount,
       currency: "INR",
       razorpayOrderId: purchase.razorpayOrderId,
       razorpayPaymentId: purchase.razorpayPaymentId,
       paymentStatus: "Verified",
       purchasedAt: new Date(purchase.updatedAt).toISOString(),
-      dataSource: "DecisionCart demo catalog",
+      dataSource,
     };
 
-    // --- 8. Log audit event ---
+    // --- 9. Log audit event ---
     await repo.createAuditEvent(
       purchase.purchaseId,
       "RECEIPT_GENERATED",
       "DONE",
       "DONE",
-      { productName: trustedProduct.name, trustedAmount: trustedProduct.price }
+      { productName: trustedProduct.name, trustedAmount }
     );
 
-    // --- 9. Return receipt data (no secrets exposed) ---
+    // --- 10. Return receipt data (no secrets exposed) ---
     return NextResponse.json({
       success: true,
       receipt,

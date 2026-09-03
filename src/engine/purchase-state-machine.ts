@@ -164,6 +164,12 @@ export interface PurchaseRecord {
   razorpayOrderId: string | null;
   /** Razorpay payment ID once verified. Null before PAID. */
   razorpayPaymentId: string | null;
+  /**
+   * Trusted merchant offer reference bound at purchase creation.
+   * Set when the purchase is merchant-aware; null for legacy product-only purchases.
+   * The offer must be resolved server-side from MerchantRepository — never trusted from client.
+   */
+  merchantOfferId: string | null;
 }
 
 // --- Purchase Store (V1 In-Memory) ---
@@ -178,7 +184,7 @@ class PurchaseStore {
   private purchases = new Map<string, PurchaseRecord>();
 
   /** Create a new purchase record in DECIDED state. */
-  create(purchaseId: string, productId: string): PurchaseRecord {
+  create(purchaseId: string, productId: string, merchantOfferId?: string): PurchaseRecord {
     const now = Date.now();
     const record: PurchaseRecord = {
       purchaseId,
@@ -190,6 +196,7 @@ class PurchaseStore {
       expiresAt: null,
       razorpayOrderId: null,
       razorpayPaymentId: null,
+      merchantOfferId: merchantOfferId ?? null,
     };
     this.purchases.set(purchaseId, record);
     return record;

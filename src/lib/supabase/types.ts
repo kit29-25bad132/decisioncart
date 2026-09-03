@@ -14,6 +14,7 @@
 export interface PurchaseRow {
   id: string;
   product_id: string;
+  merchant_offer_id: string | null;
   state: string;
   approved_at: string | null;
   expires_at: string | null;
