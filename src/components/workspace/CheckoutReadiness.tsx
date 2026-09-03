@@ -158,6 +158,7 @@ export function CheckoutReadiness({
     available?: boolean;
     source?: string;
   } | null>(null);
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false);
 
   // --- Approval Expiry Timer ---
   const [approvalTimeRemaining, setApprovalTimeRemaining] = useState<number | null>(null);
@@ -746,6 +747,131 @@ export function CheckoutReadiness({
             </li>
           </ul>
         </div>
+
+        {/* Download Receipt Button */}
+        <button
+          onClick={async () => {
+            if (!purchaseIdRef.current) return;
+            setDownloadingReceipt(true);
+            try {
+              const res = await fetch("/api/purchase/receipt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ purchaseId: purchaseIdRef.current }),
+              });
+              const data = await res.json();
+              if (!res.ok || !data.success || !data.receipt) {
+                throw new Error(data.error || "Failed to generate receipt.");
+              }
+              const r = data.receipt;
+              const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DecisionCart Receipt - ${r.purchaseId}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #18181b; padding: 40px 20px; }
+  .receipt { max-width: 560px; margin: 0 auto; background: white; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+  .header { background: #18181b; color: white; padding: 32px; text-align: center; }
+  .header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .header p { font-size: 13px; color: #a1a1aa; margin-top: 4px; }
+  .status { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px; background: #f0fdf4; border-bottom: 1px solid #dcfce7; }
+  .status .check { color: #16a34a; font-size: 18px; }
+  .status span { font-size: 14px; font-weight: 600; color: #166534; }
+  .body { padding: 28px 32px; }
+  .section { margin-bottom: 24px; }
+  .section-title { font-size: 10px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f4f4f5; }
+  .row:last-child { border-bottom: none; }
+  .row .label { font-size: 13px; color: #71717a; }
+  .row .value { font-size: 13px; font-weight: 600; color: #18181b; text-align: right; }
+  .row .value.mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; word-break: break-all; }
+  .amount { font-size: 28px; font-weight: 700; color: #18181b; text-align: center; padding: 8px 0; }
+  .footer { padding: 20px 32px; background: #fafafa; border-top: 1px solid #f4f4f5; text-align: center; }
+  .footer p { font-size: 11px; color: #a1a1aa; }
+  .demo-badge { display: inline-block; background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; margin-top: 8px; }
+  @media print { body { padding: 0; background: white; } .receipt { box-shadow: none; border-radius: 0; } }
+</style>
+</head>
+<body>
+<div class="receipt">
+  <div class="header">
+    <h1>DECISIONCART</h1>
+    <p>Payment Receipt</p>
+  </div>
+  <div class="status">
+    <span class="check">✓</span>
+    <span>Payment Successful</span>
+  </div>
+  <div class="body">
+    <div class="section">
+      <div class="section-title">Product</div>
+      <div class="row"><span class="label">Name</span><span class="value">${r.productName}</span></div>
+      <div class="row"><span class="label">Brand</span><span class="value">${r.brand}</span></div>
+      <div class="row"><span class="label">Category</span><span class="value" style="text-transform:capitalize">${r.category}</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Payment</div>
+      <div class="amount">₹${r.trustedAmount.toLocaleString()}</div>
+      <div class="row"><span class="label">Currency</span><span class="value">${r.currency}</span></div>
+      <div class="row"><span class="label">Status</span><span class="value" style="color:#16a34a">${r.paymentStatus}</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">References</div>
+      <div class="row"><span class="label">Purchase ID</span><span class="value mono">${r.purchaseId}</span></div>
+      <div class="row"><span class="label">Razorpay Order</span><span class="value mono">${r.razorpayOrderId}</span></div>
+      <div class="row"><span class="label">Razorpay Payment</span><span class="value mono">${r.razorpayPaymentId}</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Date & Time</div>
+      <div class="row"><span class="label">Purchased At</span><span class="value">${new Date(r.purchasedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+    </div>
+  </div>
+  <div class="footer">
+    <p>DecisionCart — AI-powered, human-controlled commerce decisions</p>
+    <span class="demo-badge">${r.dataSource}</span>
+  </div>
+</div>
+</body>
+</html>`;
+              const blob = new Blob([html], { type: "text/html" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `DecisionCart-Receipt-${r.purchaseId.slice(0, 8)}.html`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            } catch (err: unknown) {
+              console.error("Receipt download failed:", err);
+              alert(err instanceof Error ? err.message : "Failed to download receipt.");
+            } finally {
+              setDownloadingReceipt(false);
+            }
+          }}
+          disabled={downloadingReceipt}
+          className="w-full px-6 py-3 rounded-xl border border-zinc-200 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-3"
+        >
+          {downloadingReceipt ? (
+            <>
+              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Generating Receipt...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Download Receipt
+            </>
+          )}
+        </button>
 
         {/* Return Button */}
         <button

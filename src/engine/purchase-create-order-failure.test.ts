@@ -23,11 +23,11 @@ import { purchaseStore } from "@/engine/purchase-state-machine";
 const mockOrdersCreate = vi.hoisted(() => vi.fn());
 
 vi.mock("razorpay", () => ({
-  default: vi.fn().mockImplementation(() => ({
-    orders: {
-      create: mockOrdersCreate,
-    },
-  })),
+  default: class MockRazorpay {
+    orders = {
+      create: (...args: unknown[]) => mockOrdersCreate(...args),
+    };
+  },
 }));
 
 // Import route AFTER vi.mock so it uses the mocked Razorpay.
