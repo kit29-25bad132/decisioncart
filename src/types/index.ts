@@ -207,3 +207,91 @@ export interface EmptyResultAnalysis {
   suggestions: ConstraintRelaxationSuggestion[];
   closestMatches: ClosestMatch[];
 }
+
+// --- Merchant Intelligence ---
+
+/**
+ * A merchant in the DecisionCart marketplace.
+ * Each merchant represents a seller that offers products.
+ */
+export interface Merchant {
+  /** Unique merchant identifier. */
+  id: string;
+  /** Human-readable merchant name. */
+  name: string;
+  /** Trust score 0–100. Higher = more trustworthy. */
+  trustScore: number;
+  /** Whether the merchant is a verified / authorized seller. */
+  verified: boolean;
+  /** Fulfillment speed classification. */
+  fulfillmentSpeed: "standard" | "fast" | "priority";
+  /** Number of ratings received. */
+  ratingCount: number;
+  /** Return policy in days. */
+  returnPolicyDays: number;
+}
+
+/**
+ * A merchant's offer for a specific product.
+ * Each product may have offers from multiple merchants.
+ */
+export interface MerchantOffer {
+  /** Unique offer identifier. */
+  id: string;
+  /** The merchant making this offer. */
+  merchantId: string;
+  /** The product this offer is for. */
+  productId: string;
+  /** Offer price in the smallest currency unit (INR). */
+  price: number;
+  /** Currency code (e.g. "INR"). */
+  currency: string;
+  /** Available stock units. */
+  stock: number;
+  /** Warranty period in months. */
+  warrantyMonths: number;
+  /** Estimated delivery in days. */
+  deliveryDays: number;
+  /** ISO 8601 timestamp of last update. */
+  updatedAt: string;
+  /** Whether this offer is currently available. */
+  isAvailable: boolean;
+}
+
+/**
+ * Deterministic score for a merchant offer.
+ * All values 0–100. The overallScore drives ranking.
+ */
+export interface MerchantOfferScore {
+  /** The offer this score belongs to. */
+  offerId: string;
+  /** The merchant this score belongs to. */
+  merchantId: string;
+  /** Weighted overall score 0–100. */
+  overallScore: number;
+  /** Price competitiveness score 0–100. */
+  priceScore: number;
+  /** Trust score 0–100. */
+  trustScore: number;
+  /** Stock availability score 0–100. */
+  stockScore: number;
+  /** Warranty / protection score 0–100. */
+  warrantyScore: number;
+  /** Human-readable highlight of the main trade-off. */
+  tradeOffHighlight: string;
+}
+
+/**
+ * Result of merchant selection for a given product.
+ * Includes the recommended offer, merchant, explanation, and alternatives.
+ */
+export interface MerchantSelection {
+  /** The recommended offer. */
+  selectedOffer: MerchantOffer;
+  /** The merchant for the recommended offer. */
+  merchant: Merchant;
+  /** Human-readable explanation of why this offer was selected. */
+  explanation: string;
+  /** Other available offers for comparison. */
+  alternativeOffers: MerchantOffer[];
+}
