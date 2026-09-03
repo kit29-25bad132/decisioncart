@@ -63,6 +63,8 @@ export interface AgentStep {
   outputSummary?: string;
   /** Error message if the step failed. */
   error?: string;
+  /** Whether the step completed with degraded or limited output (non-fatal failure). */
+  degraded?: boolean;
 }
 
 // --- Agent Input ---

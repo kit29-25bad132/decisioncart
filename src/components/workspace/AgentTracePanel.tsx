@@ -92,15 +92,17 @@ export function AgentTracePanel({
                 >
                   {/* Connector line + status dot */}
                   <div className="flex flex-col items-center shrink-0">
-                    <StatusDot status={step.status} />
+                    <StatusDot status={step.status} degraded={step.degraded} />
                     {!isLast && (
                       <div
                         className={`w-px h-3 mt-1 ${
-                          step.status === "completed"
+                          step.status === "completed" && !step.degraded
                             ? "bg-emerald-300"
-                            : step.status === "failed"
-                              ? "bg-red-300"
-                              : "bg-zinc-200"
+                            : step.status === "completed" && step.degraded
+                              ? "bg-amber-300"
+                              : step.status === "failed"
+                                ? "bg-red-300"
+                                : "bg-zinc-200"
                         }`}
                       />
                     )}
@@ -111,17 +113,27 @@ export function AgentTracePanel({
                     <div className="flex items-center gap-2">
                       <span
                         className={`text-sm ${
-                          step.status === "completed"
+                          step.status === "completed" && !step.degraded
                             ? "text-zinc-700 font-medium"
-                            : step.status === "failed"
-                              ? "text-red-700 font-medium"
-                              : step.status === "running"
-                                ? "text-zinc-700"
-                                : "text-zinc-400"
+                            : step.status === "completed" && step.degraded
+                              ? "text-amber-700 font-medium"
+                              : step.status === "failed"
+                                ? "text-red-700 font-medium"
+                                : step.status === "running"
+                                  ? "text-zinc-700"
+                                  : "text-zinc-400"
                         }`}
                       >
                         {step.label}
                       </span>
+                      {step.status === "completed" && step.degraded && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-100">
+                          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                          Limited data
+                        </span>
+                      )}
                       {step.status === "running" && (
                         <div className="flex gap-0.5">
                           <span className="w-1 h-1 bg-zinc-400 rounded-full animate-pulse" />
@@ -141,7 +153,7 @@ export function AgentTracePanel({
 
                   {/* Status icon + expand chevron */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <StatusIcon status={step.status} />
+                    <StatusIcon status={step.status} degraded={step.degraded} />
                     {hasDetails && (
                       <svg
                         className={`w-3.5 h-3.5 text-zinc-300 transition-transform ${
@@ -223,20 +235,39 @@ export function AgentTracePanel({
 
 // --- Sub-components ---
 
-function StatusDot({ status }: { status: ToolStepStatus }) {
+function StatusDot({ status, degraded }: { status: ToolStepStatus; degraded?: boolean }) {
   const cls =
-    status === "completed"
+    status === "completed" && !degraded
       ? "bg-emerald-500"
-      : status === "failed"
-        ? "bg-red-500"
-        : status === "running"
-          ? "bg-zinc-900 animate-pulse"
-          : "bg-zinc-200 border border-zinc-300";
+      : status === "completed" && degraded
+        ? "bg-amber-500"
+        : status === "failed"
+          ? "bg-red-500"
+          : status === "running"
+            ? "bg-zinc-900 animate-pulse"
+            : "bg-zinc-200 border border-zinc-300";
 
   return <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${cls}`} />;
 }
 
-function StatusIcon({ status }: { status: ToolStepStatus }) {
+function StatusIcon({ status, degraded }: { status: ToolStepStatus; degraded?: boolean }) {
+  if (status === "completed" && degraded) {
+    return (
+      <svg
+        className="w-4 h-4 text-amber-500"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2.5}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+        />
+      </svg>
+    );
+  }
   if (status === "completed") {
     return (
       <svg

@@ -182,12 +182,14 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     } else {
       // Review analysis failure is non-fatal — continue without reviews
       reviewStep.status = "completed";
+      reviewStep.degraded = true;
       reviewStep.outputSummary = reviewAnalysisResult.outputSummary;
     }
   } catch (err: unknown) {
     // Unexpected error — non-fatal, continue without reviews
     reviewStep.completedAt = Date.now();
     reviewStep.status = "completed";
+    reviewStep.degraded = true;
 
     const errorMessage =
       err instanceof Error ? err.message : "Unexpected review analysis error";
@@ -466,6 +468,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         } else {
           // Verification failure is non-fatal — we still return the result
           verifyStep.status = "completed";
+          verifyStep.degraded = true;
           verifyStep.outputSummary = `Verification failed: ${verifyResult.error}`;
         }
 
@@ -484,6 +487,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         // Unexpected error — non-fatal
         verifyStep.completedAt = Date.now();
         verifyStep.status = "completed";
+        verifyStep.degraded = true;
 
         const errorMessage =
           err instanceof Error ? err.message : "Unexpected verification error";
