@@ -40,6 +40,8 @@ interface CheckoutReadinessProps {
   scoredProduct: ScoredProduct;
   confidence: DecisionConfidence;
   onProceedToCheckout: () => void;
+  /** Optional merchant offer ID reference. Only the offerId reference is sent to the server — never price, merchant, or stock. */
+  offerId?: string;
 }
 
 interface CreateOrderResponse {
@@ -164,6 +166,7 @@ export function CheckoutReadiness({
   scoredProduct,
   confidence,
   onProceedToCheckout,
+  offerId,
 }: CheckoutReadinessProps) {
   const [status, setStatus] = useState<CheckoutStatus>("idle");
 
@@ -367,13 +370,18 @@ export function CheckoutReadiness({
       setErrorMessage("");
 
       // Server creates purchase in DECIDED state
+      // Only the offerId reference is sent — price, merchant, stock are resolved server-side
+      const createBody: Record<string, string> = {
+        productId: product.id,
+        category: product.category,
+      };
+      if (offerId) {
+        createBody.offerId = offerId;
+      }
       const createRes = await fetch("/api/purchase/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: product.id,
-          category: product.category,
-        }),
+        body: JSON.stringify(createBody),
       });
 
       const createData: PurchaseCreateResponse = await createRes.json();
@@ -411,8 +419,7 @@ export function CheckoutReadiness({
           ? error.message
           : "Unable to start purchase. Please try again."
       );
-    }
-  }, [product, onProceedToCheckout]);
+    }      }, [product, onProceedToCheckout, offerId]);
 
   /**
    * Step 2: User clicks "Confirm Purchase"
@@ -449,14 +456,18 @@ export function CheckoutReadiness({
       // --- Price & Inventory Verification ---
       setStatus("verifying_price");
       try {
-        const verifyResponse = await fetch("/api/purchase/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const verifyBody: Record<string, unknown> = {
             productId: product.id,
             category: product.category,
             clientPrice: product.price,
-          }),
+          };
+          if (offerId) {
+            verifyBody.offerId = offerId;
+          }
+          const verifyResponse = await fetch("/api/purchase/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(verifyBody),
         });
 
         const verifyData = await verifyResponse.json();
@@ -489,14 +500,19 @@ export function CheckoutReadiness({
       }
 
       // Create Razorpay order (server validates purchase state + expiry)
+      // Only the offerId reference is sent — amount is derived server-side
+      const orderBody: Record<string, string> = {
+          productId: product.id,
+          category: product.category,
+          purchaseId: purchaseIdRef.current!,
+        };
+        if (offerId) {
+          orderBody.offerId = offerId;
+        }
       const orderResponse = await fetch("/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: product.id,
-          category: product.category,
-          purchaseId: purchaseIdRef.current,
-        }),
+        body: JSON.stringify(orderBody),
       });
 
       const orderData: CreateOrderResponse = await orderResponse.json();
@@ -596,7 +612,7 @@ export function CheckoutReadiness({
           : "Unable to start checkout. Please try again."
       );
     }
-  }, [product]);
+  }, [product, offerId]);
 
   function handleCancelConfirmation() {
     setStatus("idle");

@@ -25,6 +25,7 @@ import { EmptyResultPanel } from "./EmptyResultPanel";
 import { CompareTopProducts } from "./CompareTopProducts";
 import { AgentTracePanel } from "./AgentTracePanel";
 import { ReviewIntelligencePanel } from "./ReviewIntelligencePanel";
+import { MerchantOfferSelector } from "./MerchantOfferSelector";
 import type { ProductReviewIntelligence } from "@/reviews/types";
 
 const DEFAULT_BUDGET_MAX = 35000;
@@ -55,6 +56,10 @@ export function DecisionWorkspace() {
 
   // --- Phase 5A: Purchase Selection State ---
   const [purchaseProductId, setPurchaseProductId] = useState<string | null>(null);
+
+  // --- Phase 5B: Merchant Offer Selection State ---
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [offerSelectionConfirmed, setOfferSelectionConfirmed] = useState(false);
 
   // --- Decision Insight Panel State ---
   const [hasParsedQuery, setHasParsedQuery] = useState(false);
@@ -265,6 +270,9 @@ export function DecisionWorkspace() {
       setSelectedProductId(null);
       // Reset purchase selection
       setPurchaseProductId(null);
+      // Reset merchant offer selection
+      setSelectedOfferId(null);
+      setOfferSelectionConfirmed(false);
     },
     []
   );
@@ -293,6 +301,8 @@ export function DecisionWorkspace() {
       setSelectedProductId(null);
       setConstraints([]);
       setPurchaseProductId(null);
+      setSelectedOfferId(null);
+      setOfferSelectionConfirmed(false);
       setBudget({ max: newCategory === "laptop" ? 60000 : DEFAULT_BUDGET_MAX });
     },
     []
@@ -305,11 +315,30 @@ export function DecisionWorkspace() {
 
   const handleDeselectPurchase = useCallback(() => {
     setPurchaseProductId(null);
+    setSelectedOfferId(null);
+    setOfferSelectionConfirmed(false);
   }, []);
 
   const handleProceedToCheckout = useCallback(() => {
     // Phase 5B/5C will attach Razorpay order creation here
   }, []);
+
+  // --- Merchant Offer Selection Handler ---
+  const handleOfferSelected = useCallback((offerId: string) => {
+    setSelectedOfferId(offerId);
+    setOfferSelectionConfirmed(true);
+  }, []);
+
+  const handleOfferChange = useCallback(() => {
+    setOfferSelectionConfirmed(false);
+  }, []);
+
+  // --- Merchant Selection for Purchase Product ---
+  const purchaseMerchantSelection = useMemo(() => {
+    if (!purchaseScored) return null;
+    if (!agentResult?.merchantOffersResult?.success) return null;
+    return agentResult.merchantOffersResult.selectionsByProductId[purchaseScored.product.id] ?? null;
+  }, [purchaseScored, agentResult]);
 
   const isEmpty = result.scoredProducts.length === 0;
 
@@ -529,13 +558,26 @@ export function DecisionWorkspace() {
               />
             )}
 
-            {/* Checkout Readiness (shown when purchase is selected) */}
-            {purchaseScored && purchaseConfidence && (
+            {/* Merchant Offer Selection (shown when merchant offers exist for the purchase product) */}
+            {purchaseScored && purchaseMerchantSelection && (
+              <MerchantOfferSelector
+                selection={purchaseMerchantSelection}
+                onOfferSelected={handleOfferSelected}
+                onChange={handleOfferChange}
+                onBack={handleDeselectPurchase}
+                selectedOfferId={selectedOfferId ?? undefined}
+                isConfirmed={offerSelectionConfirmed}
+              />
+            )}
+
+            {/* Checkout Readiness (shown when purchase is selected and offer is confirmed or no merchant offers exist) */}
+            {purchaseScored && purchaseConfidence && (offerSelectionConfirmed || !purchaseMerchantSelection) && (
               <CheckoutReadiness
                 key={purchaseScored.product.id}
                 scoredProduct={purchaseScored}
                 confidence={purchaseConfidence}
                 onProceedToCheckout={handleProceedToCheckout}
+                offerId={selectedOfferId ?? undefined}
               />
             )}
 
