@@ -40,8 +40,8 @@ export async function GET(
     }
 
     // --- 2. Find the purchase ---
-    const repo = getPurchaseRepository();
-    const purchase = repo.getPurchase(purchaseId.trim());
+    const repo = await getPurchaseRepository();
+    const purchase = await repo.getPurchase(purchaseId.trim());
 
     if (!purchase) {
       return NextResponse.json(
@@ -51,7 +51,7 @@ export async function GET(
     }
 
     // --- 3. Get audit events ---
-    const events = repo.listAuditEvents(purchaseId.trim());
+    const events = await repo.listAuditEvents(purchaseId.trim());
 
     // --- 4. Return safe response ---
     return NextResponse.json({

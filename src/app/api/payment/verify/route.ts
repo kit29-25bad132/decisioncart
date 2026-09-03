@@ -11,8 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { purchaseStore } from "@/engine/purchase-state-machine";
-import { getPurchaseRepository } from "@/engine/purchase-repository";
+import { getPurchaseRepository, isInMemoryForced } from "@/engine/purchase-repository";
 
 /**
  * POST /api/payment/verify
@@ -126,10 +125,8 @@ export async function POST(request: NextRequest) {
     // --- 6. Signature valid — update purchase state ---
 
     // Find purchase by razorpay_order_id
-    const allPurchases = purchaseStore.all();
-    const purchase = allPurchases.find(
-      (p) => p.razorpayOrderId === razorpay_order_id.trim()
-    );
+    const repo = await getPurchaseRepository();
+    const purchase = await repo.getPurchaseByRazorpayOrderId(razorpay_order_id.trim());
 
     if (!purchase) {
       return NextResponse.json(
@@ -160,11 +157,11 @@ export async function POST(request: NextRequest) {
     // Transition ORDER_CREATED → PAID → DONE
     // Do NOT swallow transition errors — return failure if state update fails
     try {
-      purchaseStore.setRazorpayPayment(
+      await repo.setRazorpayPayment(
         purchase.purchaseId,
         razorpay_payment_id.trim()
       );
-      getPurchaseRepository().createAuditEvent(
+      await repo.createAuditEvent(
         purchase.purchaseId,
         "PAYMENT_VERIFIED",
         "ORDER_CREATED",
@@ -172,8 +169,38 @@ export async function POST(request: NextRequest) {
         { razorpayOrderId: razorpay_order_id.trim() }
       );
 
-      purchaseStore.complete(purchase.purchaseId);
-      getPurchaseRepository().createAuditEvent(
+      // Update payment record with verified payment ID (only when Supabase is configured and active)
+      const supabaseConfigured =
+        !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+        !!process.env.SUPABASE_SERVICE_ROLE_KEY &&
+        !isInMemoryForced();
+
+      if (supabaseConfigured) {
+        try {
+          const { updatePaymentRecord } = await import(
+            "@/engine/supabase-purchase-repository"
+          );
+          await updatePaymentRecord({
+            purchaseId: purchase.purchaseId,
+            razorpayPaymentId: razorpay_payment_id.trim(),
+            status: "verified",
+          });
+        } catch (paymentError: unknown) {
+          // Payment record persistence failed. The purchase state has already
+          // transitioned to PAID. We cannot silently pretend persistence succeeded.
+          console.error("Failed to update payment record:", paymentError);
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Payment verified but persistence failed. Please contact support.",
+            },
+            { status: 500 }
+          );
+        }
+      }
+
+      await repo.completePurchase(purchase.purchaseId);
+      await repo.createAuditEvent(
         purchase.purchaseId,
         "PURCHASE_COMPLETED",
         "PAID",

@@ -6,17 +6,16 @@
 // V1 UPDATE: Requires an approved purchase record before creating
 // an order. Validates approval state, expiry, and product match.
 // Transitions APPROVED → ORDER_CREATED BEFORE creating the
-// Razorpay order to prevent duplicate order creation.
+// Razorpay order to prevent duplicate order creation, using the
+// real state machine (no fake Razorpay IDs). After Razorpay
+// succeeds, the real order ID is persisted.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { getCatalog } from "@/catalog/demo-data";
-import {
-  purchaseStore,
-  isApprovalExpired,
-} from "@/engine/purchase-state-machine";
-import { getPurchaseRepository } from "@/engine/purchase-repository";
+import { isApprovalExpired } from "@/engine/purchase-state-machine";
+import { getPurchaseRepository, isInMemoryForced } from "@/engine/purchase-repository";
 
 /**
  * POST /api/payment/create-order
@@ -86,7 +85,8 @@ export async function POST(request: NextRequest) {
     }
 
     // --- 4. Validate purchase record and approval state ---
-    const purchase = purchaseStore.get(purchaseId.trim());
+    const repo = await getPurchaseRepository();
+    const purchase = await repo.getPurchase(purchaseId.trim());
 
     if (!purchase) {
       return NextResponse.json(
@@ -109,8 +109,8 @@ export async function POST(request: NextRequest) {
     if (purchase.approvedAt === null || isApprovalExpired(purchase.approvedAt)) {
       // Expire the purchase record
       const prev = purchase.state;
-      purchaseStore.expire(purchaseId.trim());
-      getPurchaseRepository().createAuditEvent(
+      await repo.expirePurchase(purchaseId.trim());
+      await repo.createAuditEvent(
         purchaseId.trim(),
         "PURCHASE_EXPIRED",
         prev,
@@ -134,10 +134,11 @@ export async function POST(request: NextRequest) {
     // --- 7. Transition APPROVED → ORDER_CREATED BEFORE Razorpay ---
     // This prevents duplicate order creation: only the first request
     // to successfully transition will proceed to create the Razorpay order.
-    let purchaseRecord;
+    // Uses the real state machine — no fake Razorpay order ID.
+    // If Razorpay fails later, we transition ORDER_CREATED → FAILED.
     try {
-      purchaseRecord = purchaseStore.setRazorpayOrder(purchaseId.trim(), "pending");
-      getPurchaseRepository().createAuditEvent(
+      await repo.transitionPurchaseState(purchaseId.trim(), "ORDER_CREATED");
+      await repo.createAuditEvent(
         purchaseId.trim(),
         "RAZORPAY_ORDER_CREATED",
         "APPROVED",
@@ -188,15 +189,69 @@ export async function POST(request: NextRequest) {
           productId: product.id,
           productName: product.name,
           category: product.category,
-          purchaseId: purchaseRecord.purchaseId,
+          purchaseId: purchaseId.trim(),
         },
       });
 
-      // --- 12. Update purchase record with actual Razorpay order ID ---
-      purchaseRecord.razorpayOrderId = order.id;
-      purchaseRecord.updatedAt = Date.now();
+      // --- 12. Persist the real Razorpay order ID ---
+      // No fake placeholder IDs — only the real Razorpay order ID is stored.
+      try {
+        await repo.updateRazorpayOrderId(purchaseId.trim(), order.id);
+      } catch (updateError: unknown) {
+        console.error("Failed to persist Razorpay order ID:", updateError);
+        // Transition to FAILED since we can't track the order
+        try {
+          await repo.failPurchase(purchaseId.trim());
+          await repo.createAuditEvent(
+            purchaseId.trim(),
+            "RAZORPAY_ORDER_FAILED",
+            "ORDER_CREATED",
+            "FAILED",
+            { reason: "failed_to_persist_razorpay_order_id" }
+          );
+        } catch {
+          console.error("Failed to transition purchase to FAILED state after order ID persistence failure");
+        }
+        return NextResponse.json(
+          { success: false, error: "Payment order created but persistence failed. Please contact support." },
+          { status: 500 }
+        );
+      }
 
-      // --- 13. Return safe response (no secrets exposed) ---
+      // --- 13. Persist payment record (only when Supabase is configured and active) ---
+      const supabaseConfigured =
+        !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+        !!process.env.SUPABASE_SERVICE_ROLE_KEY &&
+        !isInMemoryForced();
+
+      if (supabaseConfigured) {
+        try {
+          const { upsertPaymentRecord } = await import(
+            "@/engine/supabase-purchase-repository"
+          );
+          await upsertPaymentRecord({
+            purchaseId: purchaseId.trim(),
+            razorpayOrderId: order.id,
+            status: "created",
+            amount: amountInPaise,
+            currency: "INR",
+          });
+        } catch (paymentError: unknown) {
+          // Payment record persistence failed. The purchase state has already
+          // transitioned to ORDER_CREATED and a real Razorpay order exists.
+          // We cannot silently pretend persistence succeeded.
+          console.error("Failed to persist payment record:", paymentError);
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Payment order created but persistence failed. Please contact support.",
+            },
+            { status: 500 }
+          );
+        }
+      }
+
+      // --- 14. Return safe response (no secrets exposed) ---
       return NextResponse.json({
         success: true,
         order: {
@@ -213,8 +268,8 @@ export async function POST(request: NextRequest) {
       // so the purchase record does not remain permanently stuck.
       // VALID_TRANSITIONS[ORDER_CREATED] includes FAILED.
       try {
-        purchaseStore.fail(purchaseId.trim());
-        getPurchaseRepository().createAuditEvent(
+        await repo.failPurchase(purchaseId.trim());
+        await repo.createAuditEvent(
           purchaseId.trim(),
           "RAZORPAY_ORDER_FAILED",
           "ORDER_CREATED",

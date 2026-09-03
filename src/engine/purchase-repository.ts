@@ -6,12 +6,14 @@
 //
 // The existing purchaseStore singleton remains exported from
 // purchase-state-machine.ts for backward compatibility.
+//
+// All methods are async to support database-backed
+// implementations (Supabase). The in-memory implementation
+// wraps synchronous operations in Promises.
 // ============================================================
 
 import {
   purchaseStore,
-  assertValidTransition,
-  APPROVAL_EXPIRY_MS,
 } from "./purchase-state-machine";
 import type { PurchaseRecord, PurchaseState } from "./purchase-state-machine";
 
@@ -54,50 +56,57 @@ export interface AuditEvent {
 
 /**
  * Typed abstraction for purchase persistence and audit logging.
+ * All methods are async to support database-backed implementations.
  * Implementations must respect the existing state machine rules.
  */
 export interface PurchaseRepository {
   /** Create a new purchase in DECIDED state. */
-  createPurchase(purchaseId: string, productId: string): PurchaseRecord;
+  createPurchase(purchaseId: string, productId: string): Promise<PurchaseRecord>;
 
   /** Retrieve a purchase by ID. Returns null if not found. */
-  getPurchase(purchaseId: string): PurchaseRecord | null;
+  getPurchase(purchaseId: string): Promise<PurchaseRecord | null>;
 
   /** Find a purchase by Razorpay order ID. Returns null if not found. */
-  getPurchaseByRazorpayOrderId(orderId: string): PurchaseRecord | null;
+  getPurchaseByRazorpayOrderId(orderId: string): Promise<PurchaseRecord | null>;
 
   /** Transition a purchase to a new state. Validates the transition. */
   transitionPurchaseState(
     purchaseId: string,
     newState: PurchaseState
-  ): PurchaseRecord;
+  ): Promise<PurchaseRecord>;
 
   /** Set approval details on a purchase (CONFIRMING → APPROVED). */
-  approvePurchase(purchaseId: string, now?: number): PurchaseRecord;
+  approvePurchase(purchaseId: string, now?: number): Promise<PurchaseRecord>;
 
   /** Set Razorpay order details (APPROVED → ORDER_CREATED). */
   setRazorpayOrder(
     purchaseId: string,
     orderId: string
-  ): PurchaseRecord;
+  ): Promise<PurchaseRecord>;
+
+  /** Update the Razorpay order ID on an ORDER_CREATED purchase (no state transition). */
+  updateRazorpayOrderId(
+    purchaseId: string,
+    orderId: string
+  ): Promise<PurchaseRecord>;
 
   /** Set Razorpay payment details (ORDER_CREATED → PAID). */
   setRazorpayPayment(
     purchaseId: string,
     paymentId: string
-  ): PurchaseRecord;
+  ): Promise<PurchaseRecord>;
 
   /** Mark purchase as completed (PAID → DONE). */
-  completePurchase(purchaseId: string): PurchaseRecord;
+  completePurchase(purchaseId: string): Promise<PurchaseRecord>;
 
   /** Cancel a purchase. */
-  cancelPurchase(purchaseId: string): PurchaseRecord;
+  cancelPurchase(purchaseId: string): Promise<PurchaseRecord>;
 
   /** Expire a purchase. */
-  expirePurchase(purchaseId: string): PurchaseRecord;
+  expirePurchase(purchaseId: string): Promise<PurchaseRecord>;
 
   /** Mark a purchase as failed. */
-  failPurchase(purchaseId: string): PurchaseRecord;
+  failPurchase(purchaseId: string): Promise<PurchaseRecord>;
 
   /** Create an audit event for a lifecycle transition. */
   createAuditEvent(
@@ -106,16 +115,16 @@ export interface PurchaseRepository {
     previousState: PurchaseState | null,
     resultingState: PurchaseState,
     metadata?: Record<string, unknown>
-  ): AuditEvent;
+  ): Promise<AuditEvent>;
 
   /** Get all audit events for a purchase, chronological order. */
-  listAuditEvents(purchaseId: string): AuditEvent[];
+  listAuditEvents(purchaseId: string): Promise<AuditEvent[]>;
 
   /** Get all purchases (for debugging). */
-  listAllPurchases(): PurchaseRecord[];
+  listAllPurchases(): Promise<PurchaseRecord[]>;
 
   /** Clear all data (for testing). */
-  clear(): void;
+  clear(): Promise<void>;
 }
 
 // --- In-Memory Implementation ---
@@ -135,63 +144,71 @@ class InMemoryPurchaseRepository implements PurchaseRepository {
 
   // --- Purchase Operations ---
 
-  createPurchase(purchaseId: string, productId: string): PurchaseRecord {
+  async createPurchase(purchaseId: string, productId: string): Promise<PurchaseRecord> {
     return purchaseStore.create(purchaseId, productId);
   }
 
-  getPurchase(purchaseId: string): PurchaseRecord | null {
+  async getPurchase(purchaseId: string): Promise<PurchaseRecord | null> {
     return purchaseStore.get(purchaseId);
   }
 
-  getPurchaseByRazorpayOrderId(orderId: string): PurchaseRecord | null {
+  async getPurchaseByRazorpayOrderId(orderId: string): Promise<PurchaseRecord | null> {
     const all = purchaseStore.all();
     return all.find((p) => p.razorpayOrderId === orderId) ?? null;
   }
 
-  transitionPurchaseState(
+  async transitionPurchaseState(
     purchaseId: string,
     newState: PurchaseState
-  ): PurchaseRecord {
+  ): Promise<PurchaseRecord> {
     return purchaseStore.updateState(purchaseId, newState);
   }
 
-  approvePurchase(purchaseId: string, now: number = Date.now()): PurchaseRecord {
+  async approvePurchase(purchaseId: string, now: number = Date.now()): Promise<PurchaseRecord> {
     return purchaseStore.approve(purchaseId, now);
   }
 
-  setRazorpayOrder(purchaseId: string, orderId: string): PurchaseRecord {
+  async setRazorpayOrder(purchaseId: string, orderId: string): Promise<PurchaseRecord> {
     return purchaseStore.setRazorpayOrder(purchaseId, orderId);
   }
 
-  setRazorpayPayment(purchaseId: string, paymentId: string): PurchaseRecord {
+  async updateRazorpayOrderId(purchaseId: string, orderId: string): Promise<PurchaseRecord> {
+    const record = purchaseStore.get(purchaseId);
+    if (!record) throw new Error(`Purchase ${purchaseId} not found.`);
+    record.razorpayOrderId = orderId;
+    record.updatedAt = Date.now();
+    return record;
+  }
+
+  async setRazorpayPayment(purchaseId: string, paymentId: string): Promise<PurchaseRecord> {
     return purchaseStore.setRazorpayPayment(purchaseId, paymentId);
   }
 
-  completePurchase(purchaseId: string): PurchaseRecord {
+  async completePurchase(purchaseId: string): Promise<PurchaseRecord> {
     return purchaseStore.complete(purchaseId);
   }
 
-  cancelPurchase(purchaseId: string): PurchaseRecord {
+  async cancelPurchase(purchaseId: string): Promise<PurchaseRecord> {
     return purchaseStore.cancel(purchaseId);
   }
 
-  expirePurchase(purchaseId: string): PurchaseRecord {
+  async expirePurchase(purchaseId: string): Promise<PurchaseRecord> {
     return purchaseStore.expire(purchaseId);
   }
 
-  failPurchase(purchaseId: string): PurchaseRecord {
+  async failPurchase(purchaseId: string): Promise<PurchaseRecord> {
     return purchaseStore.fail(purchaseId);
   }
 
   // --- Audit Operations ---
 
-  createAuditEvent(
+  async createAuditEvent(
     purchaseId: string,
     eventType: AuditEventType,
     previousState: PurchaseState | null,
     resultingState: PurchaseState,
     metadata: Record<string, unknown> = {}
-  ): AuditEvent {
+  ): Promise<AuditEvent> {
     this.eventCounter += 1;
     const event: AuditEvent = {
       eventId: `evt-${this.eventCounter}-${Date.now()}`,
@@ -210,17 +227,17 @@ class InMemoryPurchaseRepository implements PurchaseRepository {
     return event;
   }
 
-  listAuditEvents(purchaseId: string): AuditEvent[] {
+  async listAuditEvents(purchaseId: string): Promise<AuditEvent[]> {
     const events = this.auditEvents.get(purchaseId) ?? [];
     // Already chronological (push order), but sort explicitly for safety
     return [...events].sort((a, b) => a.timestamp - b.timestamp);
   }
 
-  listAllPurchases(): PurchaseRecord[] {
+  async listAllPurchases(): Promise<PurchaseRecord[]> {
     return purchaseStore.all();
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
     purchaseStore.clear();
     this.auditEvents.clear();
     this.eventCounter = 0;
@@ -232,14 +249,53 @@ class InMemoryPurchaseRepository implements PurchaseRepository {
 let repositoryInstance: PurchaseRepository | null = null;
 
 /**
+ * When true, getPurchaseRepository always returns InMemoryPurchaseRepository.
+ * Set this in test environments to prevent auto-selecting Supabase.
+ */
+let forceInMemory = false;
+
+/**
+ * Force all future getPurchaseRepository() calls to return
+ * InMemoryPurchaseRepository. Used in test environments.
+ */
+export function forceInMemoryRepository(): void {
+  forceInMemory = true;
+}
+
+/**
+ * Check if InMemory repository is forced (test environment).
+ * Used to skip Supabase-specific operations in tests.
+ */
+export function isInMemoryForced(): boolean {
+  return forceInMemory;
+}
+
+/**
  * Get the singleton PurchaseRepository instance.
  * Returns the in-memory implementation by default.
- * Can be swapped for a database-backed implementation
- * when a persistence provider is configured.
+ * When valid Supabase configuration exists (and not forced
+ * to InMemory), returns the database-backed implementation.
  */
-export function getPurchaseRepository(): PurchaseRepository {
+export async function getPurchaseRepository(): Promise<PurchaseRepository> {
   if (!repositoryInstance) {
-    repositoryInstance = new InMemoryPurchaseRepository();
+    if (forceInMemory) {
+      repositoryInstance = new InMemoryPurchaseRepository();
+    } else {
+      // Check if Supabase is configured
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (url && serviceKey) {
+        // Dynamic import to avoid pulling Supabase into test environments
+        // where it's not needed and may not have credentials
+        const { SupabasePurchaseRepository } = await import(
+          "./supabase-purchase-repository"
+        );
+        repositoryInstance = new SupabasePurchaseRepository();
+      } else {
+        repositoryInstance = new InMemoryPurchaseRepository();
+      }
+    }
   }
   return repositoryInstance;
 }

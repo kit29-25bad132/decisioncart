@@ -7,7 +7,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCatalog } from "@/catalog/demo-data";
-import { purchaseStore } from "@/engine/purchase-state-machine";
 import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 /**
@@ -71,11 +70,12 @@ export async function POST(request: NextRequest) {
     // --- 4. Generate cryptographically secure purchaseId ---
     const purchaseId = crypto.randomUUID();
 
-    // --- 5. Create purchase in PurchaseStore ---
-    const record = purchaseStore.create(purchaseId, product.id);
+    // --- 5. Create purchase via repository ---
+    const repo = await getPurchaseRepository();
+    const record = await repo.createPurchase(purchaseId, product.id);
 
     // --- 6. Log audit event ---
-    getPurchaseRepository().createAuditEvent(
+    await repo.createAuditEvent(
       record.purchaseId,
       "PURCHASE_CREATED",
       null,

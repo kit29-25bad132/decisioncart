@@ -15,7 +15,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCatalog } from "@/catalog/demo-data";
-import { purchaseStore } from "@/engine/purchase-state-machine";
 import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 // --- Receipt Data Types ---
@@ -97,7 +96,8 @@ export async function POST(request: NextRequest) {
     }
 
     // --- 3. Find the purchase record ---
-    const purchase = purchaseStore.get(purchaseId.trim());
+    const repo = await getPurchaseRepository();
+    const purchase = await repo.getPurchase(purchaseId.trim());
 
     if (!purchase) {
       return NextResponse.json(
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
     };
 
     // --- 8. Log audit event ---
-    getPurchaseRepository().createAuditEvent(
+    await repo.createAuditEvent(
       purchase.purchaseId,
       "RECEIPT_GENERATED",
       "DONE",
