@@ -277,6 +277,8 @@ export interface MerchantOfferScore {
   stockScore: number;
   /** Warranty / protection score 0–100. */
   warrantyScore: number;
+  /** Delivery speed score 0–100. */
+  deliveryScore: number;
   /** Human-readable highlight of the main trade-off. */
   tradeOffHighlight: string;
 }
