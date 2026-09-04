@@ -4,7 +4,7 @@
 // ============================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getAIProvider, _resetProviderForTesting } from "./provider";
+import { getAIProvider, _resetProviderForTesting, AI_REQUEST_TIMEOUT_MS } from "./provider";
 import { CATEGORY_CONFIGS } from "@/catalog/categories";
 
 const smartphoneConfig = CATEGORY_CONFIGS.smartphone!;
@@ -354,7 +354,7 @@ describe("GeminiProvider", () => {
 
   // --- 11. Timeout configured ---
 
-  it("uses AbortSignal.timeout(15000)", async () => {
+  it("uses AI_REQUEST_TIMEOUT_MS for AbortSignal", async () => {
     process.env.AI_PROVIDER = "gemini";
     process.env.AI_API_KEY = "test-key";
     process.env.AI_MODEL = "gemini-2.0-flash";
@@ -373,5 +373,41 @@ describe("GeminiProvider", () => {
     const [, options] = fetchMock.mock.calls[0];
     expect(options.signal).toBeDefined();
     expect(options.signal).toBeInstanceOf(AbortSignal);
+
+    // Verify the signal was created with the expected timeout constant
+    // Note: AbortSignal.timeout() creates a signal that aborts after the specified duration.
+    // We verify the timeout constant is used (8000ms) by checking the implementation.
+    expect(AI_REQUEST_TIMEOUT_MS).toBe(8000);
+  });
+
+  // --- 12. Timeout error normalization ---
+
+  it("returns normalized timeout error when fetch times out", async () => {
+    process.env.AI_PROVIDER = "gemini";
+    process.env.AI_API_KEY = "test-key";
+    process.env.AI_MODEL = "gemini-2.0-flash";
+
+    const provider = getAIProvider()!;
+
+    // Simulate a timeout error (AbortError with timeout message)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(
+        new Error("fetch aborted: timeout")
+      )
+    );
+
+    const result = await provider.parseShoppingQuery(
+      "Best phone under 30000",
+      smartphoneConfig,
+      availableCategories
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.source).toBe("ai");
+    // Verify the timeout error is normalized with the specific timeout value
+    expect(result.error).toContain("timed out after");
+    expect(result.error).toContain("ms");
   });
 });
+

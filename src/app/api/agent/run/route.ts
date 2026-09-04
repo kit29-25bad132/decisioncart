@@ -104,6 +104,13 @@ export async function POST(request: NextRequest) {
       source: parseResult.source,
       agentResult,
       error: agentResult.error ?? null,
+      parseMeta: {
+        aiAttempted: parseResult.aiAttempted ?? false,
+        aiAvailable: parseResult.aiAvailable ?? false,
+        aiProvider: parseResult.aiProvider ?? null,
+        fallbackUsed: parseResult.fallbackUsed ?? false,
+        aiFailureClass: parseResult.aiFailureClass ?? null,
+      },
     });
   } catch {
     return NextResponse.json(

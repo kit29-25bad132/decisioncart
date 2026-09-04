@@ -38,15 +38,33 @@ export interface ParsedShoppingIntent {
   refinementMode?: RefinementMode;
 }
 
-// --- Parser Result ---
+// --- Parser Result ---export type ParseSource = "ai" | "fallback";
 
 export type ParseSource = "ai" | "fallback";
+
+export type AIFailureClass =
+  | "unavailable"
+  | "timeout"
+  | "invalid_response"
+  | "api_error"
+  | "network"
+  | "unknown";
 
 export interface AIParseResult {
   success: boolean;
   source: ParseSource;
   intent?: ParsedShoppingIntent;
   error?: string;
+  /** Whether an AI provider was attempted for this parse. */
+  aiAttempted?: boolean;
+  /** Whether an AI provider was configured and reachable at parse time. */
+  aiAvailable?: boolean;
+  /** The configured AI provider name when available, for observability only. */
+  aiProvider?: string;
+  /** Whether the deterministic fallback parser was used to produce the final intent. */
+  fallbackUsed?: boolean;
+  /** Normalized, non-sensitive classification of an AI failure, when applicable. */
+  aiFailureClass?: AIFailureClass;
 }
 
 // --- AI Provider Interface ---

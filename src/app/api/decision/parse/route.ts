@@ -75,6 +75,13 @@ export async function POST(request: NextRequest) {
       source: result.source,
       intent: result.intent ?? null,
       error: result.error ?? null,
+      parseMeta: {
+        aiAttempted: result.aiAttempted ?? false,
+        aiAvailable: result.aiAvailable ?? false,
+        aiProvider: result.aiProvider ?? null,
+        fallbackUsed: result.fallbackUsed ?? false,
+        aiFailureClass: result.aiFailureClass ?? null,
+      },
     });
   } catch {
     return NextResponse.json(

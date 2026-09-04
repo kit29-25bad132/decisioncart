@@ -11,6 +11,47 @@ import type {
 } from "./types";
 import type { CategoryConfig } from "@/types";
 
+/**
+ * Centralized AI request timeout.
+ * Used by both OpenAIProvider and GeminiProvider to abort slow requests.
+ * Chosen at 8000ms to balance responsiveness with network variability
+ * while still allowing the fallback parser to take over quickly.
+ */
+export const AI_REQUEST_TIMEOUT_MS = 8000;
+
+/**
+ * Normalize non-secret AI error messages into a failure class for observability.
+ * Never includes provider credentials or internal request details.
+ */
+export function classifyAIFailure(message: string): AIParseResult["aiFailureClass"] {
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes("timeout") ||
+    lower.includes("abort") ||
+    lower.includes("aborted") ||
+    /timed\s*out/i.test(lower)
+  ) {
+    return "timeout";
+  }
+
+  if (lower.includes("network") || lower.includes("fetch failed")) {
+    return "network";
+  }
+
+  if (
+    lower.includes("status") ||
+    lower.includes("http error") ||
+    lower.includes("bad request") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden")
+  ) {
+    return "api_error";
+  }
+
+  return "unknown";
+}
+
 // --- OpenAI Provider ---
 
 class OpenAIProvider implements AIProvider {
@@ -51,7 +92,7 @@ class OpenAIProvider implements AIProvider {
             max_tokens: 500,
             response_format: { type: "json_object" },
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
         }
       );
 
@@ -60,6 +101,7 @@ class OpenAIProvider implements AIProvider {
           success: false,
           source: "ai",
           error: `AI API returned status ${response.status}`,
+          aiFailureClass: "api_error",
         };
       }
 
@@ -86,6 +128,7 @@ class OpenAIProvider implements AIProvider {
           success: false,
           source: "ai",
           error: "AI returned invalid structured data",
+          aiFailureClass: "invalid_response",
         };
       }
 
@@ -93,7 +136,24 @@ class OpenAIProvider implements AIProvider {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unknown AI error";
-      return { success: false, source: "ai", error: message };
+
+      const failureClass = classifyAIFailure(message);
+
+      if (failureClass === "timeout") {
+        return {
+          success: false,
+          source: "ai",
+          error: `AI request timed out after ${AI_REQUEST_TIMEOUT_MS}ms`,
+          aiFailureClass: "timeout",
+        };
+      }
+
+      return {
+        success: false,
+        source: "ai",
+        error: message,
+        aiFailureClass: failureClass,
+      };
     }
   }
 }
@@ -285,7 +345,7 @@ class GeminiProvider implements AIProvider {
             responseMimeType: "application/json",
           },
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {
@@ -293,6 +353,7 @@ class GeminiProvider implements AIProvider {
           success: false,
           source: "ai",
           error: `Gemini API returned status ${response.status}`,
+          aiFailureClass: "api_error",
         };
       }
 
@@ -320,6 +381,7 @@ class GeminiProvider implements AIProvider {
           success: false,
           source: "ai",
           error: "Gemini returned invalid structured data",
+          aiFailureClass: "invalid_response",
         };
       }
 
@@ -327,7 +389,24 @@ class GeminiProvider implements AIProvider {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unknown Gemini error";
-      return { success: false, source: "ai", error: message };
+
+      const failureClass = classifyAIFailure(message);
+
+      if (failureClass === "timeout") {
+        return {
+          success: false,
+          source: "ai",
+          error: `AI request timed out after ${AI_REQUEST_TIMEOUT_MS}ms`,
+          aiFailureClass: "timeout",
+        };
+      }
+
+      return {
+        success: false,
+        source: "ai",
+        error: message,
+        aiFailureClass: failureClass,
+      };
     }
   }
 }
@@ -339,6 +418,13 @@ let cachedProvider: AIProvider | null = null;
 /** Reset the cached provider. Exported for test-only use. */
 export function _resetProviderForTesting(): void {
   cachedProvider = null;
+}
+
+/** Returns a safe, non-secret provider label for observability. */
+export function getProviderId(provider?: string): "openai" | "gemini" | "unknown" {
+  if (provider === "openai") return "openai";
+  if (provider === "gemini") return "gemini";
+  return "unknown";
 }
 
 export function getAIProvider(): AIProvider | null {

@@ -3,12 +3,30 @@
 // Verify budget constraints persist through conversational refinements
 // ============================================================
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { parseShoppingQuery } from "@/lib/ai/parse";
+import { _resetProviderForTesting } from "@/lib/ai/provider";
 import { CATEGORY_CONFIGS } from "@/catalog/categories";
 import type { ParserContext } from "@/lib/ai/types";
 
 describe("budget preservation in refinements", () => {
+  const originalEnv = {
+    AI_PROVIDER: process.env.AI_PROVIDER,
+    AI_API_KEY: process.env.AI_API_KEY,
+    AI_MODEL: process.env.AI_MODEL,
+  };
+
+  beforeEach(() => {
+    _resetProviderForTesting();
+  });
+
+  afterEach(() => {
+    process.env.AI_PROVIDER = originalEnv.AI_PROVIDER;
+    process.env.AI_API_KEY = originalEnv.AI_API_KEY;
+    process.env.AI_MODEL = originalEnv.AI_MODEL;
+    _resetProviderForTesting();
+  });
+
   it('Initial query "Phone under ₹30,000 with 5G" followed by "Just focus on camera" preserves budget', async () => {
     const allCategories = Object.values(CATEGORY_CONFIGS);
 

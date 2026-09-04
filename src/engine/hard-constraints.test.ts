@@ -3,14 +3,32 @@
 // Verifies generic category-agnostic constraint filtering.
 // ============================================================
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { runDecision } from "./decision-engine";
 import { getCatalog } from "@/catalog/demo-data";
 import { getCategoryConfig } from "@/catalog/categories";
 import { parseShoppingQuery } from "@/lib/ai/parse";
+import { _resetProviderForTesting } from "@/lib/ai/provider";
 import { CATEGORY_CONFIGS } from "@/catalog/categories";
 import type { UserPreference, Product } from "@/types";
 import type { ParserContext } from "@/lib/ai/types";
+
+const originalEnv = {
+  AI_PROVIDER: process.env.AI_PROVIDER,
+  AI_API_KEY: process.env.AI_API_KEY,
+  AI_MODEL: process.env.AI_MODEL,
+};
+
+beforeEach(() => {
+  _resetProviderForTesting();
+});
+
+afterEach(() => {
+  process.env.AI_PROVIDER = originalEnv.AI_PROVIDER;
+  process.env.AI_API_KEY = originalEnv.AI_API_KEY;
+  process.env.AI_MODEL = originalEnv.AI_MODEL;
+  _resetProviderForTesting();
+});
 
 // ============================================================
 // TEST 1: RAM >= 8 excludes products with 4GB RAM

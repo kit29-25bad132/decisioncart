@@ -11,7 +11,7 @@ import type {
   ParsedShoppingIntent,
   RefinementMode,
 } from "./types";
-import { getAIProvider } from "./provider";
+import { getAIProvider, getProviderId } from "./provider";
 import { fallbackParse } from "./fallback-parser";
 import { resolveCategoryConfig as resolveFromCatalog } from "@/catalog/category-resolver";
 
@@ -59,8 +59,13 @@ export async function parseShoppingQuery(
 
   // Try AI provider first
   const aiProvider = getAIProvider();
+  const aiAttempted = !!aiProvider;
+  const aiAvailable = aiAttempted;
+  const aiProviderId = aiAttempted ? getProviderId(process.env.AI_PROVIDER) : undefined;
+
+  let aiResult: AIParseResult | undefined;
   if (aiProvider) {
-    const aiResult = await aiProvider.parseShoppingQuery(
+    aiResult = await aiProvider.parseShoppingQuery(
       trimmed,
       categoryConfig,
       context.categories
@@ -83,7 +88,13 @@ export async function parseShoppingQuery(
         }
       }
 
-      return aiResult;
+      return {
+        ...aiResult,
+        aiAttempted: true,
+        aiAvailable: true,
+        aiProvider: aiProviderId,
+        fallbackUsed: false,
+      };
     }
 
     // AI failed — fall through to fallback
@@ -103,11 +114,29 @@ export async function parseShoppingQuery(
         categoryConfig,
         refinementMode
       );
-      return { success: true, source: "fallback", intent: merged };
+      return {
+        success: true,
+        source: "fallback",
+        intent: merged,
+        aiAttempted: aiAttempted,
+        aiAvailable: aiAvailable,
+        aiProvider: aiAttempted ? aiProviderId : undefined,
+        fallbackUsed: true,
+        aiFailureClass: aiAttempted && aiResult?.aiFailureClass ? aiResult.aiFailureClass : undefined,
+      };
     }
   }
 
-  return { success: true, source: "fallback", intent: fallbackIntent };
+  return {
+    success: true,
+    source: "fallback",
+    intent: fallbackIntent,
+    aiAttempted: aiAttempted,
+    aiAvailable: aiAvailable,
+    aiProvider: aiAttempted ? aiProviderId : undefined,
+    fallbackUsed: true,
+    aiFailureClass: aiAttempted && aiResult?.aiFailureClass ? aiResult.aiFailureClass : undefined,
+  };
 }
 
 // --- Helpers ---

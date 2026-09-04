@@ -281,6 +281,12 @@ export function AIQueryInput({
                 />
               </svg>
               {lastResult.source === "ai" ? "AI" : "Smart"} match
+              {lastResult.source === "fallback" && lastResult.aiAvailable === false && (
+                <span className="text-emerald-600 ml-1">(AI unavailable)</span>
+              )}
+              {lastResult.source === "fallback" && lastResult.aiAvailable === true && (
+                <span className="text-amber-700 ml-1">(AI failed, fallback used)</span>
+              )}
             </span>
             <span className="text-xs text-zinc-400">
               {Math.round(lastResult.intent.confidence * 100)}% confidence
