@@ -54,8 +54,26 @@ interface CreateOrderResponse {
     amount: number;
     currency: string;
     productId: string;
-    productName: string;
   };
+}
+
+interface VerifyPurchaseResponse {
+  success: boolean;
+  productId?: string;
+  offerId?: string;
+  merchantId?: string;
+  verifiedPrice?: number;
+  currency?: string;
+  available?: boolean;
+  stock?: number;
+  checkedAt?: string;
+  source?: string;
+  priceMismatch?: {
+    clientPrice: number;
+    trustedPrice: number;
+    difference: number;
+  };
+  error?: string;
 }
 
 interface VerifyPaymentResponse {
@@ -143,6 +161,20 @@ function formatRemaining(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Normalize an approval expiry from the server to epoch ms.
+ * In-memory flow returns epoch ms; Supabase-backed flow may return ISO strings.
+ */
+function toEpochMs(value?: number | string | null): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 /** Format audit event type into human-readable label. */
 function formatAuditEventType(type: string): string {
   const labels: Record<string, string> = {
@@ -177,8 +209,10 @@ export function CheckoutReadiness({
     verifiedPrice?: number;
     available?: boolean;
     source?: string;
+    merchantId?: string;
   } | null>(null);
   const [downloadingReceipt, setDownloadingReceipt] = useState(false);
+  const [receiptAmount, setReceiptAmount] = useState<number>(0);
   const [auditEvents, setAuditEvents] = useState<{
     eventId: string;
     eventType: string;
@@ -202,6 +236,7 @@ export function CheckoutReadiness({
     orderId: string;
     amount: number;
     currency: string;
+    productId: string;
     productName: string;
   } | null>(null);
 
@@ -226,7 +261,22 @@ export function CheckoutReadiness({
 
     const checkExpiry = () => {
       const now = Date.now();
-      if (now >= approvalExpiresAtRef.current!) {
+      const expiresAt = approvalExpiresAtRef.current;
+      if (expiresAt === null) return false;
+
+      const expiryMs = toEpochMs(expiresAt);
+      if (expiryMs === null) {
+        setStatus("error");
+        setErrorMessage("Approval expiry is invalid. Please start over.");
+        setApprovalTimeRemaining(null);
+        if (approvalTimerRef.current) {
+          clearInterval(approvalTimerRef.current);
+          approvalTimerRef.current = null;
+        }
+        return true;
+      }
+
+      if (now >= expiryMs) {
         setStatus("error");
         setErrorMessage("Approval has expired. Please approve again.");
         setApprovalTimeRemaining(null);
@@ -236,7 +286,7 @@ export function CheckoutReadiness({
         }
         return true;
       }
-      setApprovalTimeRemaining(approvalExpiresAtRef.current! - now);
+      setApprovalTimeRemaining(expiryMs - now);
       return false;
     };
 
@@ -299,7 +349,7 @@ export function CheckoutReadiness({
       amount: retry.amount,
       currency: retry.currency,
       name: "DecisionCart",
-      description: `Purchase of ${retry.productName}`,
+      description: `Purchase of ${retry.productName ?? retry.productId}`,
       order_id: retry.orderId,
 
       handler: async (response: RazorpayPaymentResponse) => {
@@ -450,27 +500,27 @@ export function CheckoutReadiness({
       }
 
       // Server response is the source of truth for approval state
-      approvalExpiresAtRef.current = approveData.expiresAt;
-      setApprovalTimeRemaining(approveData.expiresAt - Date.now());
+      const expiresAtMs = toEpochMs(approveData.expiresAt);
+      approvalExpiresAtRef.current = expiresAtMs;
+      setApprovalTimeRemaining(expiresAtMs !== null ? expiresAtMs - Date.now() : null);
 
       // --- Price & Inventory Verification ---
       setStatus("verifying_price");
       try {
-        const verifyBody: Record<string, unknown> = {
-            productId: product.id,
-            category: product.category,
-            clientPrice: product.price,
-          };
-          if (offerId) {
-            verifyBody.offerId = offerId;
-          }
-          const verifyResponse = await fetch("/api/purchase/verify", {
+        const verifyBody: Record<string, string> = {
+          productId: product.id,
+          category: product.category,
+        };
+        if (offerId) {
+          verifyBody.offerId = offerId;
+        }
+        const verifyResponse = await fetch("/api/purchase/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(verifyBody),
         });
 
-        const verifyData = await verifyResponse.json();
+        const verifyData: VerifyPurchaseResponse = await verifyResponse.json();
 
         if (!verifyResponse.ok || !verifyData.success) {
           throw new Error(
@@ -482,6 +532,7 @@ export function CheckoutReadiness({
           verifiedPrice: verifyData.verifiedPrice,
           available: verifyData.available,
           source: verifyData.source,
+          merchantId: verifyData.merchantId,
         });
       } catch (verifyErr: unknown) {
         // Verification failure blocks the purchase for safety
@@ -590,12 +641,15 @@ export function CheckoutReadiness({
         },
       };
 
-      // Store order details for retry if user cancels
+      // Store order details for retry if user cancels.
+      // The server returned order.id/amount/currency/productId.
+      // productName is only used for display retry text.
       razorpayRetryRef.current = {
         keyId: orderData.keyId,
         orderId: orderData.order.id,
         amount: orderData.order.amount,
         currency: orderData.order.currency,
+        productId: orderData.order.productId,
         productName: product.name,
       };
 
@@ -668,7 +722,7 @@ export function CheckoutReadiness({
               </p>
             </div>
             <p className="text-sm font-semibold text-zinc-900">
-              ₹{product.price.toLocaleString()}
+              ₹{receiptAmount.toLocaleString()}
             </p>
           </div>
         </div>
@@ -692,28 +746,28 @@ export function CheckoutReadiness({
           </p>
         </div>
 
-        {/* Payment Status */}
+        {/* Payment Summary */}
         <div className="bg-zinc-50 rounded-xl p-4 mb-4">
           <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
-            Payment Status
+            Payment Summary
           </p>
-          <div className="flex items-center gap-2">
-            <svg
-              className="w-4 h-4 text-emerald-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-            <span className="text-sm font-medium text-emerald-700">
-              Verified
-            </span>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-zinc-500">
+                Amount charged
+              </p>
+              <p className="text-lg font-semibold text-zinc-900">
+                ₹{receiptAmount.toLocaleString()}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-zinc-500">
+                Payment
+              </p>
+              <p className="text-sm font-medium text-emerald-700">
+                Verified
+              </p>
+            </div>
           </div>
         </div>
 
@@ -865,6 +919,7 @@ export function CheckoutReadiness({
                 throw new Error(data.error || "Failed to generate receipt.");
               }
               const r = data.receipt;
+              setReceiptAmount(r.trustedAmount);
               const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -928,6 +983,10 @@ export function CheckoutReadiness({
     <div class="section">
       <div class="section-title">Date & Time</div>
       <div class="row"><span class="label">Purchased At</span><span class="value">${new Date(r.purchasedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Verified By</div>
+      <div class="row"><span class="label">Source</span><span class="value">${r.dataSource}</span></div>
     </div>
   </div>
   <div class="footer">
