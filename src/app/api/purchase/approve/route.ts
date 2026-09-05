@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPurchaseRepository } from "@/engine/purchase-repository";
+import { getMerchantRepository } from "@/merchant/merchant-repository";
+import { getCatalog } from "@/catalog/demo-data";
 
 /**
  * POST /api/purchase/approve
@@ -72,17 +74,98 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // --- 4b. Snapshot approved material merchant facts (server-side) ---
+    // The browser is never authoritative for price, availability, stock,
+    // merchant identity, or offer validity. Current values are resolved
+    // from the trusted repositories at approval time and snapshotted
+    // into the PURCHASE_APPROVED audit event. The payment create-order
+    // boundary compares current server-side facts against this snapshot
+    // so a stale approval cannot proceed on changed material facts.
+    let approvedOfferSnapshot: {
+      offerId: string;
+      merchantId: string;
+      price: number;
+      currency: string;
+      stock: number;
+    } | null = null;
+
+    if (purchase.merchantOfferId) {
+      const merchantRepo = await getMerchantRepository();
+      const offer = await merchantRepo.getOffer(purchase.merchantOfferId);
+
+      if (!offer) {
+        // Offer vanished between purchase creation and approval.
+        // Fail closed — do not grant an approval on an invalid offer.
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Merchant offer is no longer available. Please review and confirm a fresh purchase summary.",
+          },
+          { status: 409 }
+        );
+      }
+
+      if (!offer.isAvailable || offer.stock <= 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Merchant offer is no longer available. Please review and confirm a fresh purchase summary.",
+          },
+          { status: 409 }
+        );
+      }
+
+      approvedOfferSnapshot = {
+        offerId: offer.id,
+        merchantId: offer.merchantId,
+        price: offer.price,
+        currency: offer.currency,
+        stock: offer.stock,
+      };
+    } else {
+      // Catalog-only purchase: snapshot the trusted catalog price.
+      const allCatalogs = ["smartphone", "laptop"];
+      let approvedPrice: number | null = null;
+      for (const catalogCategory of allCatalogs) {
+        const product = getCatalog(catalogCategory).find(
+          (p) => p.id === purchase.productId
+        );
+        if (product) {
+          approvedPrice = product.price;
+          break;
+        }
+      }
+      approvedOfferSnapshot = approvedPrice !== null
+        ? { offerId: "", merchantId: "", price: approvedPrice, currency: "INR", stock: 0 }
+        : null;
+    }
+
     // --- 5. Perform the approval (server generates timestamps + expiry) ---
     const previousState = purchase.state;
     const approved = await repo.approvePurchase(purchaseId.trim());
 
-    // --- 6. Log audit event ---
+    // --- 6. Log audit event with approved material facts snapshot ---
     await repo.createAuditEvent(
       approved.purchaseId,
       "PURCHASE_APPROVED",
       previousState,
       "APPROVED",
-      { expiresAt: approved.expiresAt }
+      {
+        expiresAt: approved.expiresAt,
+        ...(approvedOfferSnapshot
+          ? {
+              approvedPrice: approvedOfferSnapshot.price,
+              approvedCurrency: approvedOfferSnapshot.currency,
+              ...(approvedOfferSnapshot.offerId
+                ? {
+                    approvedOfferId: approvedOfferSnapshot.offerId,
+                    approvedMerchantId: approvedOfferSnapshot.merchantId,
+                    approvedStock: approvedOfferSnapshot.stock,
+                  }
+                : {}),
+            }
+          : {}),
+      }
     );
 
     // --- 7. Return approval details ---

@@ -163,6 +163,172 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // --- 7b. Stale-offer protection + approval-snapshot gate (fail closed) ---
+    // TRUST BOUNDARY: the browser is never authoritative for price,
+    // availability, stock, merchant identity, or offer validity. All
+    // current values are re-resolved from trusted server-side sources
+    // and compared deterministically against the material facts recorded
+    // in the PURCHASE_APPROVED audit event at approval time.
+    //
+    // SECURITY PRINCIPLE: an approval is valid only if the exact material
+    // facts the user approved can be established AND those facts still
+    // match current authoritative merchant state. If the approval snapshot
+    // is missing or incomplete, the server cannot prove what was approved,
+    // so the only safe behavior is to FAIL CLOSED: no Razorpay order, no
+    // ORDER_CREATED transition, approval invalidated.
+    {
+      // Locate the latest PURCHASE_APPROVED audit event containing the
+      // approved material-facts snapshot (server-side; not client-supplied).
+      const auditEvents = await repo.listAuditEvents(purchaseId.trim());
+      const approvedEvent = [...auditEvents]
+        .reverse()
+        .find((e) => e.eventType === "PURCHASE_APPROVED");
+      const approvedPrice = approvedEvent?.metadata.approvedPrice;
+      const approvedOfferId = approvedEvent?.metadata.approvedOfferId;
+      const approvedMerchantId = approvedEvent?.metadata.approvedMerchantId;
+
+      // Minimum material facts required to trust the snapshot: a positive
+      // approved price, plus (for merchant-aware purchases) the approved
+      // offer and merchant identity. Anything less cannot establish what
+      // was approved.
+      const approvedPriceNum =
+        approvedEvent !== undefined &&
+        typeof approvedPrice === "number" &&
+        approvedPrice > 0
+          ? approvedPrice
+          : null;
+      const hasSnapshot =
+        approvedPriceNum !== null &&
+        (!purchase.merchantOfferId ||
+          (typeof approvedOfferId === "string" &&
+            approvedOfferId.length > 0 &&
+            typeof approvedMerchantId === "string" &&
+            approvedMerchantId.length > 0));
+
+      // Helper: invalidate the prior approval (APPROVED → EXPIRED) and
+      // record why, so the stale approval cannot be retried without a
+      // fresh review and re-approval.
+      const blockApproval = async (
+        reason:
+          | "APPROVAL_SNAPSHOT_MISSING"
+          | "PRICE_CHANGED"
+          | "OUT_OF_STOCK"
+          | "OFFER_REMOVED"
+          | "OFFER_MISMATCH"
+          | "INSUFFICIENT_STOCK",
+        extraMetadata: Record<string, unknown>
+      ) => {
+        try {
+          await repo.expirePurchase(purchaseId.trim());
+          await repo.createAuditEvent(
+            purchaseId.trim(),
+            "MERCHANT_STALE_OFFER_BLOCKED",
+            "APPROVED",
+            "EXPIRED",
+            {
+              purchaseId: purchaseId.trim(),
+              reason,
+              ...(purchase.merchantOfferId
+                ? { offerId: purchase.merchantOfferId }
+                : {}),
+              ...(approvedPriceNum !== null
+                ? { approvedPrice: approvedPriceNum }
+                : {}),
+              ...extraMetadata,
+            }
+          );
+        } catch (auditError: unknown) {
+          console.error(
+            "Failed to record stale-offer audit event:",
+            auditError
+          );
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Purchase approval could not be validated against current merchant facts. Please review the updated purchase summary and approve again.",
+          },
+          { status: 409 }
+        );
+      };
+
+      // 7b-0. Missing/malformed snapshot → FAIL CLOSED. Without the
+      // approved material facts the server cannot establish what the user
+      // approved, so the approval must never be allowed to spend money.
+      if (!hasSnapshot) {
+        return await blockApproval("APPROVAL_SNAPSHOT_MISSING", {});
+      }
+
+      if (purchase.merchantOfferId) {
+        const merchantRepo = await getMerchantRepository();
+        const currentOffer = await merchantRepo.getOffer(purchase.merchantOfferId);
+
+        // 7b-1. Offer no longer exists → block, invalidate approval
+        if (!currentOffer) {
+          return await blockApproval("OFFER_REMOVED", {});
+        }
+
+        // 7b-2. Product/merchant identity must match what was approved
+        if (
+          currentOffer.productId !== purchase.productId ||
+          approvedOfferId !== purchase.merchantOfferId ||
+          approvedMerchantId !== currentOffer.merchantId
+        ) {
+          return await blockApproval("OFFER_MISMATCH", {
+            currentProductId: currentOffer.productId,
+            currentMerchantId: currentOffer.merchantId,
+          });
+        }
+
+        // 7b-3. Availability changed → block, invalidate approval
+        if (!currentOffer.isAvailable) {
+          return await blockApproval("OUT_OF_STOCK", {
+            currentStock: currentOffer.stock,
+          });
+        }
+
+        // 7b-4. Stock below required quantity (quantity is 1 in V1) → block
+        if (currentOffer.stock < 1) {
+          return await blockApproval("INSUFFICIENT_STOCK", {
+            currentStock: currentOffer.stock,
+            requiredQuantity: 1,
+          });
+        }
+
+        // 7b-5. Price changed (any direction is material) → block.
+        // Integer-paise comparison — same normalization as order creation.
+        if (
+          Math.round(currentOffer.price * 100) !==
+          Math.round(approvedPriceNum! * 100)
+        ) {
+          return await blockApproval("PRICE_CHANGED", {
+            currentPrice: currentOffer.price,
+          });
+        }
+      } else {
+        // Catalog-only purchase: compare the current trusted catalog price
+        // against the approved snapshot price. A vanished product is an
+        // identity failure — the approved facts can no longer be matched.
+        const catalog = getCatalog(category.trim());
+        const product = catalog.find((p) => p.id === purchase.productId);
+
+        if (!product) {
+          return await blockApproval("OFFER_MISMATCH", {
+            note: "approved_product_not_found_in_catalog",
+          });
+        }
+
+        if (
+          Math.round(product.price * 100) !==
+          Math.round(approvedPriceNum! * 100)
+        ) {
+          return await blockApproval("PRICE_CHANGED", {
+            currentPrice: product.price,
+          });
+        }
+      }
+    }
+
     // --- 8. Resolve trusted price from server-side source ---
     let amountInPaise: number;
     let verifiedOffer: {
@@ -366,19 +532,30 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Recalculate amount from latest price (ignore any stale client price)
+        // A price change inside this window is material: the purchase was
+        // approved for a specific price, so silently continuing on a new
+        // price is forbidden. Fail closed (state is ORDER_CREATED here,
+        // so FAILED is a valid transition) — no order is created.
         if (freshOffer.price !== verifiedOffer.price) {
-          amountInPaise = Math.round(freshOffer.price * 100);
+          await repo.failPurchase(purchaseId.trim());
           await repo.createAuditEvent(
             purchaseId.trim(),
-            "OFFER_PRICE_CHANGED",
+            "RAZORPAY_ORDER_FAILED",
             "ORDER_CREATED",
-            "ORDER_CREATED",
+            "FAILED",
             {
+              reason: "offer_price_changed_before_razorpay",
               offerId: freshOffer.id,
-              previousPrice: verifiedOffer.price,
-              newPrice: freshOffer.price,
+              approvedPrice: verifiedOffer.price,
+              currentPrice: freshOffer.price,
             }
+          );
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Merchant offer price changed while processing. Please review the updated purchase summary and approve again.",
+            },
+            { status: 409 }
           );
         }
 

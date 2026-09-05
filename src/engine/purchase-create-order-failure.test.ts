@@ -15,6 +15,8 @@ import {
 } from "vitest";
 import { NextRequest } from "next/server";
 import { purchaseStore } from "@/engine/purchase-state-machine";
+import { getCatalog } from "@/catalog/demo-data";
+import { getPurchaseRepository } from "@/engine/purchase-repository";
 
 // ============================================================
 // Mock Razorpay
@@ -50,16 +52,33 @@ function mockRequest(body: unknown): NextRequest {
   );
 }
 
-function setupApprovedPurchase(
+async function setupApprovedPurchase(
   purchaseId: string,
   productId: string = "phone-001"
 ) {
-  const purchase = purchaseStore.create(purchaseId, productId);
-
+  purchaseStore.create(purchaseId, productId);
   purchaseStore.updateState(purchaseId, "CONFIRMING");
   purchaseStore.approve(purchaseId);
 
-  return purchase;
+  // Order creation fails closed without a trustworthy approval snapshot.
+  // Record the same PURCHASE_APPROVED snapshot the real approve flow
+  // writes (server-resolved trusted catalog price).
+  const product = getCatalog("smartphone").find((p) => p.id === productId);
+  if (!product) throw new Error(`Product ${productId} not found in catalog`);
+  const repo = await getPurchaseRepository();
+  await repo.createAuditEvent(
+    purchaseId,
+    "PURCHASE_APPROVED",
+    "CONFIRMING",
+    "APPROVED",
+    {
+      expiresAt: purchaseStore.get(purchaseId)!.expiresAt,
+      approvedPrice: product.price,
+      approvedCurrency: "INR",
+    }
+  );
+
+  return purchaseStore.get(purchaseId);
 }
 
 // ============================================================
@@ -98,7 +117,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       new Error("Razorpay API error")
     );
 
-    setupApprovedPurchase("razorpay-fail-1");
+    await setupApprovedPurchase("razorpay-fail-1");
 
     const res = await postCreateOrder(
       mockRequest({
@@ -123,7 +142,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       new Error("ECONNRESET: connection reset")
     );
 
-    setupApprovedPurchase("razorpay-fail-2");
+    await setupApprovedPurchase("razorpay-fail-2");
 
     const res = await postCreateOrder(
       mockRequest({
@@ -144,7 +163,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       new Error("Razorpay API error")
     );
 
-    setupApprovedPurchase("dup-fail-1");
+    await setupApprovedPurchase("dup-fail-1");
 
     const res1 = await postCreateOrder(
       mockRequest({
@@ -178,7 +197,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       new Error("Razorpay API error: invalid_key")
     );
 
-    setupApprovedPurchase("secret-leak-1");
+    await setupApprovedPurchase("secret-leak-1");
 
     const res = await postCreateOrder(
       mockRequest({
@@ -201,7 +220,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       new Error("Simulated failure")
     );
 
-    setupApprovedPurchase("fail-resilience-1");
+    await setupApprovedPurchase("fail-resilience-1");
 
     const res = await postCreateOrder(
       mockRequest({
@@ -224,7 +243,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       currency: "INR",
     });
 
-    setupApprovedPurchase("concurrent-1");
+    await setupApprovedPurchase("concurrent-1");
 
     const res1 = await postCreateOrder(
       mockRequest({
@@ -262,7 +281,7 @@ describe("Razorpay Order Creation Failure Recovery", () => {
       currency: "INR",
     });
 
-    setupApprovedPurchase("success-flow-1");
+    await setupApprovedPurchase("success-flow-1");
 
     const res = await postCreateOrder(
       mockRequest({

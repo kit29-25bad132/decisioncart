@@ -36,7 +36,8 @@ export type AuditEventType =
   | "RECEIPT_GENERATED"
   | "OFFER_VERIFIED"
   | "OFFER_PRICE_CHANGED"
-  | "MERCHANT_OFFER_SELECTED";
+  | "MERCHANT_OFFER_SELECTED"
+  | "MERCHANT_STALE_OFFER_BLOCKED";
 
 /** A single audit event in the purchase lifecycle. */
 export interface AuditEvent {

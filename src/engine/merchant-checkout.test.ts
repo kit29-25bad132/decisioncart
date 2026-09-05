@@ -782,7 +782,7 @@ describe("Price Change Behavior", () => {
     else delete process.env.RAZORPAY_KEY_SECRET;
   });
 
-  it("updated offer price is used at checkout", async () => {
+  it("price change after approval blocks order creation and invalidates the stale approval", async () => {
     const offer = await getSeededOfferForProduct(TEST_PRODUCT_ID);
     const originalPrice = offer.price;
     const newPrice = originalPrice - 5000;
@@ -813,13 +813,28 @@ describe("Price Change Behavior", () => {
     );
     const data = await res.json();
 
-    expect(data.success).toBe(true);
-    const callArgs = mockOrdersCreate.mock.calls[0][0];
-    // Must use the NEW price, not the original
-    expect(callArgs.amount).toBe(Math.round(newPrice * 100));
+    // Material change: order creation MUST be blocked
+    expect(data.success).toBe(false);
+    // No Razorpay order was created
+    expect(mockOrdersCreate).not.toHaveBeenCalled();
+    // Stale approval invalidated — purchase is EXPIRED, not stuck in APPROVED
+    expect(purchaseStore.get(purchaseId)!.state).toBe("EXPIRED");
+
+    // Same stale approval cannot be retried successfully without fresh approval
+    const retry = await postCreateOrder(
+      mockRequest({
+        productId: TEST_PRODUCT_ID,
+        category: TEST_CATEGORY,
+        purchaseId,
+        offerId: offer.id,
+      })
+    );
+    const retryData = await retry.json();
+    expect(retryData.success).toBe(false);
+    expect(mockOrdersCreate).not.toHaveBeenCalled();
   });
 
-  it("stale client price is ignored", async () => {
+  it("stale client price cannot override the authoritative current price", async () => {
     const offer = await getSeededOfferForProduct(TEST_PRODUCT_ID);
     const originalPrice = offer.price;
     const newPrice = originalPrice - 10000;
@@ -830,7 +845,8 @@ describe("Price Change Behavior", () => {
       offer.id
     );
 
-    // Change price
+    // Change price after approval — a material change regardless of what
+    // the client sends
     const merchantRepo = await getMerchantRepository();
     await merchantRepo.updateOfferPrice(offer.id, newPrice);
 
@@ -840,7 +856,8 @@ describe("Price Change Behavior", () => {
       currency: "INR",
     });
 
-    // Client sends the OLD price
+    // Client sends the OLD price — the server compares current server-side
+    // facts against the approved snapshot, never the client's price
     const res = await postCreateOrder(
       mockRequest({
         productId: TEST_PRODUCT_ID,
@@ -852,10 +869,9 @@ describe("Price Change Behavior", () => {
     );
     const data = await res.json();
 
-    expect(data.success).toBe(true);
-    const callArgs = mockOrdersCreate.mock.calls[0][0];
-    // Must use server-verified NEW price, NOT client's stale price
-    expect(callArgs.amount).toBe(Math.round(newPrice * 100));
+    expect(data.success).toBe(false);
+    expect(mockOrdersCreate).not.toHaveBeenCalled();
+    expect(purchaseStore.get(purchaseId)!.state).toBe("EXPIRED");
   });
 });
 
