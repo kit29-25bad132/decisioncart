@@ -17,6 +17,12 @@ describe("budget preservation in refinements", () => {
   };
 
   beforeEach(() => {
+    // Test isolation: this file must exercise the deterministic fallback parser.
+    // Never call the real AI API from tests — delete provider config so
+    // parseShoppingQuery takes the no-provider path (immediate fallback).
+    delete process.env.AI_PROVIDER;
+    delete process.env.AI_API_KEY;
+    delete process.env.AI_MODEL;
     _resetProviderForTesting();
   });
 
