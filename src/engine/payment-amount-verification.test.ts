@@ -216,6 +216,7 @@ describe("Server-Side Payment Amount Verification", () => {
     const events = await repo.listAuditEvents(purchaseId);
     expect(events.some((e) => e.eventType === "PAYMENT_AMOUNT_MISMATCH")).toBe(false);
     expect(events.some((e) => e.eventType === "PAYMENT_VERIFIED")).toBe(true);
+    expect(events.some((e) => e.eventType === "PAYMENT_PERSISTENCE_SUCCESS")).toBe(true);
     expect(events.some((e) => e.eventType === "PURCHASE_COMPLETED")).toBe(true);
   });
 
@@ -308,8 +309,9 @@ describe("Server-Side Payment Amount Verification", () => {
     expect(mismatch!.metadata.paidAmount).toBe(authoritativeAmountInPaise - 1);
     expect(mismatch!.metadata.razorpayOrderId).toBe(razorpayOrderId);
 
-    // No successful payment/completion events
+    // No successful payment/persistence/completion events
     expect(events.some((e) => e.eventType === "PAYMENT_VERIFIED")).toBe(false);
+    expect(events.some((e) => e.eventType === "PAYMENT_PERSISTENCE_SUCCESS")).toBe(false);
     expect(events.some((e) => e.eventType === "PURCHASE_COMPLETED")).toBe(false);
   });
 

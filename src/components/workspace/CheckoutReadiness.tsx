@@ -9,6 +9,7 @@ import type { PurchaseState } from "@/engine/purchase-state-machine";
 interface VerifiedPaymentDetails {
   orderId: string;
   paymentId: string;
+  trustedAmount: number;
 }
 
 /** Server purchase creation response */
@@ -80,6 +81,9 @@ interface VerifyPaymentResponse {
   success: boolean;
   error?: string;
   message?: string;
+  receipt?: {
+    trustedAmount?: number;
+  };
 }
 
 interface RazorpayPaymentResponse {
@@ -212,7 +216,7 @@ export function CheckoutReadiness({
     merchantId?: string;
   } | null>(null);
   const [downloadingReceipt, setDownloadingReceipt] = useState(false);
-  const [receiptAmount, setReceiptAmount] = useState<number>(0);
+  const [receiptAmount, setReceiptAmount] = useState<number | null>(null);
   const [auditEvents, setAuditEvents] = useState<{
     eventId: string;
     eventType: string;
@@ -373,10 +377,19 @@ export function CheckoutReadiness({
             );
           }
 
+          const trustedAmount = verifyData.receipt?.trustedAmount;
+          if (typeof trustedAmount !== "number" || !Number.isFinite(trustedAmount) || trustedAmount <= 0) {
+            throw new Error(
+              "Payment verified, but receipt details are still being finalized."
+            );
+          }
+
           setPaymentDetails({
             orderId: response.razorpay_order_id,
             paymentId: response.razorpay_payment_id,
+            trustedAmount,
           });
+          setReceiptAmount(trustedAmount);
           setStatus("success");
         } catch (error: unknown) {
           console.error("Payment verification failed:", error);
@@ -609,11 +622,20 @@ export function CheckoutReadiness({
               );
             }
 
+            const trustedAmount = verifyData.receipt?.trustedAmount;
+            if (typeof trustedAmount !== "number" || !Number.isFinite(trustedAmount) || trustedAmount <= 0) {
+              throw new Error(
+                "Payment verified, but receipt details are still being finalized."
+              );
+            }
+
             // Save safe payment details before showing success
             setPaymentDetails({
               orderId: response.razorpay_order_id,
               paymentId: response.razorpay_payment_id,
+              trustedAmount,
             });
+            setReceiptAmount(trustedAmount);
             setStatus("success");
           } catch (error: unknown) {
             console.error("Payment verification failed:", error);
@@ -678,7 +700,7 @@ export function CheckoutReadiness({
   // --- UI States ---
 
   // Payment verified successfully — post-payment confirmation card
-  if (status === "success" && paymentDetails) {
+  if (status === "success" && paymentDetails && receiptAmount !== null) {
     return (
       <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
         {/* Header */}

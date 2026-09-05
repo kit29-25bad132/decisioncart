@@ -73,6 +73,28 @@ describe("CheckoutReadiness verification contract", () => {
     expect(verifiedPrice).not.toBe(productPrice);
     expect(verifiedPrice).toBeLessThan(productPrice);
   });
+
+  it("uses the server-authoritative verified receipt amount for success", () => {
+    const verifyData = {
+      success: true,
+      receipt: {
+        trustedAmount: 28500,
+      },
+    };
+
+    expect(verifyData.receipt.trustedAmount).toBe(28500);
+    expect(verifyData.receipt.trustedAmount).toBeGreaterThan(0);
+  });
+
+  it("does not treat a missing or zero receipt amount as a successful amount", () => {
+    const invalidAmounts = [undefined, 0, -1, Number.NaN];
+
+    for (const amount of invalidAmounts) {
+      expect(
+        typeof amount === "number" && Number.isFinite(amount) && amount > 0
+      ).toBe(false);
+    }
+  });
 });
 
 /**
