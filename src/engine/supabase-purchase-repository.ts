@@ -301,6 +301,40 @@ export class SupabasePurchaseRepository implements PurchaseRepository {
     return rowToPurchaseRecord(data as PurchaseRow);
   }
 
+  async finalizeVerifiedPayment(
+    purchaseId: string,
+    paymentId: string
+  ): Promise<PurchaseRecord> {
+    const current = await this.getPurchase(purchaseId);
+    if (!current) {
+      throw new Error(`Purchase ${purchaseId} not found.`);
+    }
+
+    assertValidTransition(current.state, "PAID");
+    assertValidTransition("PAID", "DONE");
+
+    const now = new Date().toISOString();
+    const { data, error } = await this.client
+      .from("purchases")
+      .update({
+        state: "DONE",
+        razorpay_payment_id: paymentId,
+        updated_at: now,
+      })
+      .eq("id", purchaseId)
+      .eq("state", "ORDER_CREATED")
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(
+        `Failed to finalize verified payment: ${error.message}`
+      );
+    }
+
+    return rowToPurchaseRecord(data as PurchaseRow);
+  }
+
   async completePurchase(purchaseId: string): Promise<PurchaseRecord> {
     return this.transitionPurchaseState(purchaseId, "DONE");
   }
@@ -472,7 +506,9 @@ export async function updatePaymentRecord(params: {
       status: params.status,
       updated_at: now,
     })
-    .eq("purchase_id", params.purchaseId);
+    .eq("purchase_id", params.purchaseId)
+    .select("id")
+    .single();
 
   if (error) {
     throw new Error(

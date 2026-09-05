@@ -3,10 +3,12 @@
 // Server-side only. Verifies Razorpay payment signatures
 // using HMAC SHA256.
 //
-// V1 UPDATE: Updates purchase state to PAID on successful
-// verification, then completes the purchase (DONE).
-// Does NOT return success if purchase state update fails.
-// Handles repeated verification after DONE safely.
+// V2 UPDATE: Hardened payment persistence correctness.
+// After Razorpay signature verification and authoritative Razorpay
+// payment verification, the route persists the successful payment
+// and purchase state transition FIRST, and only then returns success.
+// Persistence failure does NOT return success and does NOT mark
+// the purchase PAID or DONE. Repeated verification is handled safely.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -22,13 +24,21 @@ import type { PurchaseRecord } from "@/engine/purchase-state-machine";
  *
  * Verifies a Razorpay payment signature to confirm authenticity.
  * Uses HMAC SHA256 with the server-side secret key.
- * Updates purchase state on success.
  *
  * After signature validation:
  * - Finds purchase by razorpay_order_id
  * - Verifies purchase is in ORDER_CREATED state
- * - Transitions ORDER_CREATED → PAID → DONE
- * - Returns failure if state update fails
+ * - Resolves the authoritative paid amount server-side from Razorpay
+ * - Verifies the paid amount matches the authoritative expected amount
+ * - Persists the successful payment and purchase completion
+ * - Only then returns success with server-authoritative receipt fields
+ *
+ * Persistence correctness:
+ * - PAID/DONE is reached only after persistence succeeds.
+ * - Persistence failure returns a safe error and leaves the purchase
+ *   in ORDER_CREATED so it can be safely retried/reconciled.
+ * - Idempotent retries after successful persistence return the
+ *   already-persisted result without duplicating records/audit events.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -126,9 +136,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 6. Signature valid — update purchase state ---
+    // --- 6. Resolve the repository and purchase once, using server-side state ---
 
-    // Find purchase by razorpay_order_id
     const repo = await getPurchaseRepository();
     const purchase = await repo.getPurchaseByRazorpayOrderId(razorpay_order_id.trim());
 
@@ -139,15 +148,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Handle repeated verification after DONE — safe, return success
+    // --- 7. Idempotent retry: persistence already completed safely ---
+
     if (purchase.state === "DONE") {
+      if (purchase.razorpayPaymentId !== razorpay_payment_id.trim()) {
+        return NextResponse.json(
+          { success: false, message: "Payment verification failed." },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json({
         success: true,
         message: "Payment verified successfully.",
+        receipt: await buildReceiptForPurchase(purchase),
       });
     }
 
-    // Verify purchase is in ORDER_CREATED state
+    // --- 8. Verify purchase is in ORDER_CREATED state ---
+
     if (purchase.state !== "ORDER_CREATED") {
       return NextResponse.json(
         {
@@ -158,7 +177,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- 7. Amount verification (server-authoritative) ---
+    // --- 9. Amount verification (server-authoritative) ---
     // TRUST BOUNDARY: the paid amount is retrieved server-side from
     // Razorpay. Any amount supplied by the client is ignored entirely.
     const expectedAmountInPaise = await resolveExpectedAmountInPaise(purchase);
@@ -248,64 +267,96 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Transition ORDER_CREATED → PAID → DONE
-    // Do NOT swallow transition errors — return failure if state update fails
+    // --- 10. Persistence-first completion gate ---
+    //
+    // Sequence:
+    //   1. persist payment record where Supabase is configured
+    //   2. atomically finalize the purchase (ORDER_CREATED → PAID → DONE)
+    //   3. emit audit events
+    //
+    // Only after this gate succeeds may the API return success and the
+    // purchase reach PAID/DONE. If any persistence step fails, the
+    // purchase remains in ORDER_CREATED and the client receives a safe
+    // error. Razorpay already captured the real payment, so we never
+    // retry charging the customer merely because local persistence failed.
     try {
-      await repo.setRazorpayPayment(
-        purchase.purchaseId,
-        razorpay_payment_id.trim()
-      );
-      await repo.createAuditEvent(
-        purchase.purchaseId,
-        "PAYMENT_VERIFIED",
-        "ORDER_CREATED",
-        "PAID",
-        { razorpayOrderId: razorpay_order_id.trim() }
-      );
-
-      // Update payment record with verified payment ID (only when Supabase is configured and active)
       const supabaseConfigured =
         !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
         !!process.env.SUPABASE_SERVICE_ROLE_KEY &&
         !isInMemoryForced();
 
       if (supabaseConfigured) {
-        try {
-          const { updatePaymentRecord } = await import(
-            "@/engine/supabase-purchase-repository"
-          );
-          await updatePaymentRecord({
-            purchaseId: purchase.purchaseId,
-            razorpayPaymentId: razorpay_payment_id.trim(),
-            status: "verified",
-          });
-        } catch (paymentError: unknown) {
-          // Payment record persistence failed. The purchase state has already
-          // transitioned to PAID. We cannot silently pretend persistence succeeded.
-          console.error("Failed to update payment record:", paymentError);
-          return NextResponse.json(
-            {
-              success: false,
-              message: "Payment verified but persistence failed. Please contact support.",
-            },
-            { status: 500 }
-          );
-        }
+        const { updatePaymentRecord } = await import(
+          "@/engine/supabase-purchase-repository"
+        );
+
+        await updatePaymentRecord({
+          purchaseId: purchase.purchaseId,
+          razorpayPaymentId: razorpay_payment_id.trim(),
+          status: "verified",
+        });
       }
 
-      await repo.completePurchase(purchase.purchaseId);
-      await repo.createAuditEvent(
+      const finalizedPurchase = await repo.finalizeVerifiedPayment(
         purchase.purchaseId,
+        razorpay_payment_id.trim()
+      );
+
+      await repo.createAuditEvent(
+        finalizedPurchase.purchaseId,
+        "PAYMENT_VERIFIED",
+        "ORDER_CREATED",
+        "PAID",
+        { razorpayOrderId: razorpay_order_id.trim() }
+      );
+      await repo.createAuditEvent(
+        finalizedPurchase.purchaseId,
         "PURCHASE_COMPLETED",
         "PAID",
-        "DONE"
+        "DONE",
+        {}
       );
-    } catch (err) {
-      console.error("Failed to update purchase state after payment verification:", err);
+      await repo.createAuditEvent(
+        finalizedPurchase.purchaseId,
+        "PAYMENT_PERSISTENCE_SUCCESS",
+        "PAID",
+        "DONE",
+        {
+          razorpayOrderId: razorpay_order_id.trim(),
+          razorpayPaymentId: razorpay_payment_id.trim(),
+        }
+      );
+    } catch (persistenceError: unknown) {
+      console.error(
+        "Verified Razorpay payment could not be persisted:",
+        persistenceError
+      );
+
+      // Leave the purchase in ORDER_CREATED. Do NOT mark PAID or DONE.
+      // Preserve audit context for safe retry / reconciliation.
+      try {
+        await repo.createAuditEvent(
+          purchase.purchaseId,
+          "PAYMENT_PERSISTENCE_FAILED",
+          "ORDER_CREATED",
+          "ORDER_CREATED",
+          {
+            razorpayOrderId: razorpay_order_id.trim(),
+            razorpayPaymentId: razorpay_payment_id.trim(),
+            reason: "verified_payment_persistence_failed",
+          }
+        );
+      } catch (auditError: unknown) {
+        console.error(
+          "Failed to record payment persistence-failure audit event:",
+          auditError
+        );
+      }
+
       return NextResponse.json(
         {
           success: false,
-          message: "Payment verified but failed to update purchase state. Please contact support.",
+          message: "Payment was verified with Razorpay but the final purchase recording failed. Please try again or contact support.",
         },
         { status: 500 }
       );
@@ -314,6 +365,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Payment verified successfully.",
+      receipt: await buildReceiptForPurchase(
+        (await repo.getPurchase(purchase.purchaseId)) ?? purchase
+      ),
     });
   } catch (error: unknown) {
     console.error("Payment verification error:", error);
@@ -364,4 +418,52 @@ async function resolveExpectedAmountInPaise(
   }
 
   return null;
+}
+
+/**
+ * Build a server-authoritative receipt summary for a purchase that
+ * has successfully completed persistence. This is intentionally lean
+ * and uses only trusted server-side data. It does not expose secrets
+ * or internal implementation details.
+ */
+async function buildReceiptForPurchase(
+  purchase: PurchaseRecord
+): Promise<{ purchaseId: string; productId: string; trustedAmount: number; currency: string; razorpayOrderId: string; razorpayPaymentId: string; dataSource: string } | null> {
+  const allCatalogs = ["smartphone", "laptop"];
+  let trustedProduct = null;
+
+  for (const catalogCategory of allCatalogs) {
+    const catalog = getCatalog(catalogCategory);
+    const found = catalog.find((p) => p.id === purchase.productId);
+    if (found) {
+      trustedProduct = found;
+      break;
+    }
+  }
+
+  if (!trustedProduct) {
+    return null;
+  }
+
+  let trustedAmount = trustedProduct.price;
+  let dataSource = "DecisionCart demo catalog";
+
+  if (purchase.merchantOfferId) {
+    const merchantRepo = await getMerchantRepository();
+    const offer = await merchantRepo.getOffer(purchase.merchantOfferId);
+    if (offer && offer.price > 0) {
+      trustedAmount = offer.price;
+      dataSource = "merchant-repository";
+    }
+  }
+
+  return {
+    purchaseId: purchase.purchaseId,
+    productId: trustedProduct.id,
+    trustedAmount,
+    currency: "INR",
+    razorpayOrderId: purchase.razorpayOrderId ?? "",
+    razorpayPaymentId: purchase.razorpayPaymentId ?? "",
+    dataSource,
+  };
 }

@@ -27,8 +27,10 @@ export type AuditEventType =
   | "PRICE_VERIFIED"
   | "RAZORPAY_ORDER_CREATED"
   | "RAZORPAY_ORDER_FAILED"
-  | "PAYMENT_AMOUNT_MISMATCH"
+  |  "PAYMENT_AMOUNT_MISMATCH"
   | "PAYMENT_VERIFIED"
+  | "PAYMENT_PERSISTENCE_SUCCESS"
+  | "PAYMENT_PERSISTENCE_FAILED"
   | "PURCHASE_COMPLETED"
   | "PURCHASE_FAILED"
   | "PURCHASE_EXPIRED"
@@ -97,6 +99,12 @@ export interface PurchaseRepository {
 
   /** Set Razorpay payment details (ORDER_CREATED → PAID). */
   setRazorpayPayment(
+    purchaseId: string,
+    paymentId: string
+  ): Promise<PurchaseRecord>;
+
+  /** Atomically persist a verified payment and complete the purchase. */
+  finalizeVerifiedPayment(
     purchaseId: string,
     paymentId: string
   ): Promise<PurchaseRecord>;
@@ -187,6 +195,13 @@ class InMemoryPurchaseRepository implements PurchaseRepository {
 
   async setRazorpayPayment(purchaseId: string, paymentId: string): Promise<PurchaseRecord> {
     return purchaseStore.setRazorpayPayment(purchaseId, paymentId);
+  }
+
+  async finalizeVerifiedPayment(
+    purchaseId: string,
+    paymentId: string
+  ): Promise<PurchaseRecord> {
+    return purchaseStore.finalizeVerifiedPayment(purchaseId, paymentId);
   }
 
   async completePurchase(purchaseId: string): Promise<PurchaseRecord> {

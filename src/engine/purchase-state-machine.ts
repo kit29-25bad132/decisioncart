@@ -259,6 +259,28 @@ class PurchaseStore {
     return record;
   }
 
+  /**
+   * Atomically finalize a verified payment.
+   *
+   * The two legal transitions are validated before the record is changed so
+   * callers never observe PAID/DONE unless both transitions can complete.
+   */
+  finalizeVerifiedPayment(purchaseId: string, paymentId: string): PurchaseRecord {
+    const record = this.purchases.get(purchaseId);
+    if (!record) {
+      throw new Error(`Purchase ${purchaseId} not found.`);
+    }
+
+    assertValidTransition(record.state, "PAID");
+    assertValidTransition("PAID", "DONE");
+
+    const now = Date.now();
+    record.razorpayPaymentId = paymentId;
+    record.state = "DONE";
+    record.updatedAt = now;
+    return record;
+  }
+
   /** Mark a purchase as completed. */
   complete(purchaseId: string): PurchaseRecord {
     return this.updateState(purchaseId, "DONE");
