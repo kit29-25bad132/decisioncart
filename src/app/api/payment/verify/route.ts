@@ -11,7 +11,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import Razorpay from "razorpay";
 import { getPurchaseRepository, isInMemoryForced } from "@/engine/purchase-repository";
+import { getCatalog } from "@/catalog/demo-data";
+import { getMerchantRepository } from "@/merchant/merchant-repository";
+import type { PurchaseRecord } from "@/engine/purchase-state-machine";
 
 /**
  * POST /api/payment/verify
@@ -154,6 +158,96 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // --- 7. Amount verification (server-authoritative) ---
+    // TRUST BOUNDARY: the paid amount is retrieved server-side from
+    // Razorpay. Any amount supplied by the client is ignored entirely.
+    const expectedAmountInPaise = await resolveExpectedAmountInPaise(purchase);
+
+    if (expectedAmountInPaise === null) {
+      // The authoritative amount cannot be established — fail closed.
+      // The purchase is NOT marked PAID or DONE.
+      console.error(
+        "Cannot resolve authoritative purchase amount for payment verification."
+      );
+      return NextResponse.json(
+        { success: false, message: "Payment verification failed." },
+        { status: 500 }
+      );
+    }
+
+    // The Razorpay key ID is required to fetch the payment server-side.
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    if (!keyId) {
+      console.error("Razorpay key ID is not configured.");
+      return NextResponse.json(
+        { success: false, message: "Payment verification service is not configured." },
+        { status: 500 }
+      );
+    }
+
+    let paidAmountInPaise: number | null = null;
+    let paidOrderId: string | null = null;
+    try {
+      const razorpay = new Razorpay({
+        key_id: keyId,
+        key_secret: keySecret,
+      });
+      const payment = await razorpay.payments.fetch(razorpay_payment_id.trim());
+      paidAmountInPaise =
+        payment && typeof payment.amount === "number" ? payment.amount : null;
+      paidOrderId =
+        payment && typeof payment.order_id === "string" ? payment.order_id : null;
+    } catch (fetchError: unknown) {
+      // Payment could not be retrieved from Razorpay — fail closed.
+      console.error(
+        "Failed to fetch Razorpay payment for amount verification:",
+        fetchError
+      );
+      return NextResponse.json(
+        { success: false, message: "Payment verification failed." },
+        { status: 500 }
+      );
+    }
+
+    // The fetched payment must belong to the signed Razorpay order.
+    if (
+      paidAmountInPaise === null ||
+      paidOrderId !== razorpay_order_id.trim()
+    ) {
+      return NextResponse.json(
+        { success: false, message: "Payment verification failed." },
+        { status: 400 }
+      );
+    }
+
+    // The paid amount must exactly match the authoritative server-side amount.
+    if (paidAmountInPaise !== expectedAmountInPaise) {
+      // Amount mismatch — reject. The purchase remains in ORDER_CREATED:
+      // it is NOT marked PAID or DONE, and no receipt can be issued.
+      try {
+        await repo.createAuditEvent(
+          purchase.purchaseId,
+          "PAYMENT_AMOUNT_MISMATCH",
+          "ORDER_CREATED",
+          "ORDER_CREATED",
+          {
+            razorpayOrderId: razorpay_order_id.trim(),
+            expectedAmount: expectedAmountInPaise,
+            paidAmount: paidAmountInPaise,
+          }
+        );
+      } catch (auditError: unknown) {
+        console.error(
+          "Failed to record payment amount mismatch audit event:",
+          auditError
+        );
+      }
+      return NextResponse.json(
+        { success: false, message: "Payment verification failed." },
+        { status: 400 }
+      );
+    }
+
     // Transition ORDER_CREATED → PAID → DONE
     // Do NOT swallow transition errors — return failure if state update fails
     try {
@@ -228,4 +322,46 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// --- Helpers ---
+
+/**
+ * Resolve the authoritative expected payment amount in paise from
+ * server-side purchase state. The client is never consulted.
+ *
+ * Priority:
+ *  1. Bound merchant offer price (merchant-aware purchases)
+ *  2. Trusted server-side catalog price (catalog-only purchases)
+ *
+ * Returns null when the amount cannot be established — callers must
+ * fail closed in that case.
+ */
+async function resolveExpectedAmountInPaise(
+  purchase: PurchaseRecord
+): Promise<number | null> {
+  // Merchant-aware purchase: the bound offer price is authoritative.
+  if (purchase.merchantOfferId) {
+    const merchantRepo = await getMerchantRepository();
+    const offer = await merchantRepo.getOffer(purchase.merchantOfferId);
+
+    if (!offer || offer.price <= 0) {
+      return null;
+    }
+    return Math.round(offer.price * 100);
+  }
+
+  // Catalog-only purchase: the trusted catalog price is authoritative.
+  // Matches the receipt route's catalog resolution strategy.
+  const allCatalogs = ["smartphone", "laptop"];
+  for (const catalogCategory of allCatalogs) {
+    const product = getCatalog(catalogCategory).find(
+      (p) => p.id === purchase.productId
+    );
+    if (product) {
+      return Math.round(product.price * 100);
+    }
+  }
+
+  return null;
 }
