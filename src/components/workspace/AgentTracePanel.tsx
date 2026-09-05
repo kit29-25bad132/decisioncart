@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { AgentStep, ToolStepStatus } from "@/agent/agent-types";
+import type { DecisionTraceSummary } from "@/agent/agent-trace";
 
 interface AgentTracePanelProps {
   /** Observable agent steps from the orchestrator. */
@@ -10,6 +11,14 @@ interface AgentTracePanelProps {
   status: "running" | "completed" | "failed";
   /** Optional overall error message. */
   error?: string;
+  /** The user's original query (factual, from the run trace). */
+  query?: string;
+  /** Whether the parse used the AI provider or the deterministic fallback. */
+  parseSource?: "ai" | "fallback";
+  /** Factual decision summary (server-computed — never invented client-side). */
+  decision?: DecisionTraceSummary;
+  /** Whether the run trace was actually persisted server-side. */
+  tracePersisted?: boolean;
 }
 
 /**
@@ -26,8 +35,14 @@ export function AgentTracePanel({
   steps,
   status,
   error,
+  query,
+  parseSource,
+  decision,
+  tracePersisted,
 }: AgentTracePanelProps) {
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+
+  const topTradeOffs = (decision?.tradeOffs ?? []).slice(0, 3);
 
   if (steps.length === 0) return null;
 
@@ -69,6 +84,44 @@ export function AgentTracePanel({
           </div>
         </div>
       </div>
+
+      {/* USER REQUEST → AGENT UNDERSTOOD (factual, from parsed intent) */}
+      {query && (
+        <div className="px-6 py-4 border-b border-zinc-100 bg-zinc-50/50">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">
+            User request
+          </p>
+          <p className="text-sm text-zinc-700 italic">“{query}”</p>
+
+          {decision && (
+            <div className="mt-3 pt-3 border-t border-zinc-200/70">
+              <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2">
+                Agent understood
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <TraceChip label={decision.categoryLabel} />
+                {decision.budgetMax !== undefined && (
+                  <TraceChip label={`Budget ≤ ₹${decision.budgetMax.toLocaleString()}`} />
+                )}
+                {decision.budgetMax === undefined && decision.budgetMin !== undefined && (
+                  <TraceChip label={`Budget ≥ ₹${decision.budgetMin.toLocaleString()}`} />
+                )}
+                <TraceChip label={`${decision.priorityCount} priorities`} />
+                <TraceChip label={`${decision.constraintCount} constraints`} />
+              </div>
+            </div>
+          )}
+
+          {parseSource === "fallback" && (
+            <div className="mt-3 flex items-center gap-1.5 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 w-fit">
+              <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              AI unavailable — deterministic parser used
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Steps */}
       <div className="px-6 py-4">
@@ -206,6 +259,80 @@ export function AgentTracePanel({
         </div>
       </div>
 
+      {/* DECISION (factual server-computed data — scores, not reasoning) */}
+      {decision && (
+        <div className="px-6 py-4 border-t border-zinc-100">
+          <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-2.5">
+            Decision
+          </p>
+          <div className="bg-zinc-50 rounded-xl border border-zinc-100 p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-zinc-900 truncate">
+                  {decision.topProductName}
+                </p>
+                <p className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                  {decision.topProductId}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-semibold text-zinc-900">
+                  {decision.topScore.toFixed(1)}
+                  <span className="text-[10px] text-zinc-400 font-normal"> / 100</span>
+                </p>
+                <p className="text-[10px] text-zinc-400">Decision Score</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 mt-3">
+              <TraceChip label={`${decision.scoredProductCount} products scored`} />
+              <TraceChip label={`Data confidence: ${decision.topDataConfidence}`} />
+              {decision.topStrengths.slice(0, 2).map((s) => (
+                <TraceChip key={s} label={`+ ${s}`} tone="positive" />
+              ))}
+              {decision.topWeaknesses.slice(0, 2).map((s) => (
+                <TraceChip key={s} label={`− ${s}`} tone="negative" />
+              ))}
+            </div>
+
+            {topTradeOffs.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-zinc-200/70">
+                <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">
+                  Key trade-offs
+                </p>
+                <div className="space-y-1">
+                  {topTradeOffs.map((t) => (
+                    <p key={t.criterionKey} className="text-xs text-zinc-600">
+                      <span className="text-zinc-400">{t.criterionLabel}:</span>{" "}
+                      {t.winnerProductName} ({t.score}%)
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Ready for purchase
+            </span>
+            {tracePersisted === true && (
+              <span className="text-[10px] text-zinc-400">
+                Trace recorded for audit
+              </span>
+            )}
+            {tracePersisted === false && (
+              <span className="text-[10px] text-amber-700">
+                Trace recording unavailable
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Overall error */}
       {error && (
         <div className="px-6 pb-4">
@@ -230,6 +357,29 @@ export function AgentTracePanel({
         </div>
       )}
     </div>
+  );
+}
+
+// --- Trace sub-components ---
+
+function TraceChip({
+  label,
+  tone = "neutral",
+}: {
+  label: string;
+  tone?: "neutral" | "positive" | "negative";
+}) {
+  const cls =
+    tone === "positive"
+      ? "text-emerald-700 bg-emerald-50 border-emerald-100"
+      : tone === "negative"
+        ? "text-red-700 bg-red-50 border-red-100"
+        : "text-zinc-600 bg-white border-zinc-200";
+
+  return (
+    <span className={`inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full border ${cls}`}>
+      {label}
+    </span>
   );
 }
 

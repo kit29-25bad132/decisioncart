@@ -24,6 +24,7 @@ import { DecisionInsightPanel } from "./DecisionInsightPanel";
 import { EmptyResultPanel } from "./EmptyResultPanel";
 import { CompareTopProducts } from "./CompareTopProducts";
 import { AgentTracePanel } from "./AgentTracePanel";
+import { buildDecisionTraceSummary } from "@/agent/agent-trace";
 import { ReviewIntelligencePanel } from "./ReviewIntelligencePanel";
 import { MerchantOfferSelector } from "./MerchantOfferSelector";
 import type { ProductReviewIntelligence } from "@/reviews/types";
@@ -70,6 +71,7 @@ export function DecisionWorkspace() {
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [agentStatus, setAgentStatus] = useState<"running" | "completed" | "failed" | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentTracePersisted, setAgentTracePersisted] = useState<boolean | null>(null);
 
   // --- Agent Result State ---
   const [agentResult, setAgentResult] = useState<AgentResult | null>(null);
@@ -230,6 +232,7 @@ export function DecisionWorkspace() {
       agentStatus?: "running" | "completed" | "failed";
       agentError?: string;
       agentResult?: AgentResult;
+      tracePersisted?: boolean;
     }) => {
       setCategory(intent.category);
 
@@ -249,6 +252,7 @@ export function DecisionWorkspace() {
       setAgentSteps(intent.agentSteps ?? []);
       setAgentStatus(intent.agentStatus ?? null);
       setAgentError(intent.agentError ?? null);
+      setAgentTracePersisted(intent.tracePersisted ?? null);
 
       // Store full agent result for server-side decision output
       const agent = intent.agentResult ?? null;
@@ -307,6 +311,7 @@ export function DecisionWorkspace() {
       setAgentStatus(null);
       setAgentError(null);
       setAgentResult(null);
+      setAgentTracePersisted(null);
       setBudget({ max: newCategory === "laptop" ? 60000 : DEFAULT_BUDGET_MAX });
     },
     []
@@ -343,6 +348,12 @@ export function DecisionWorkspace() {
     if (!agentResult?.merchantOffersResult?.success) return null;
     return agentResult.merchantOffersResult.selectionsByProductId[purchaseScored.product.id] ?? null;
   }, [purchaseScored, agentResult]);
+
+  // --- Factual decision summary for the agent trace UI (server-computed only) ---
+  const agentDecision = useMemo(
+    () => (agentResult ? buildDecisionTraceSummary(agentResult) : null),
+    [agentResult]
+  );
 
   const isEmpty = result.scoredProducts.length === 0;
 
@@ -420,6 +431,10 @@ export function DecisionWorkspace() {
               steps={agentSteps}
               status={agentStatus}
               error={agentError ?? undefined}
+              query={lastOriginalQuery || undefined}
+              parseSource={lastParserSource}
+              decision={agentDecision ?? undefined}
+              tracePersisted={agentTracePersisted ?? undefined}
             />
           </div>
         )}

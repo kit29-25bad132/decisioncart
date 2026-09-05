@@ -11,6 +11,7 @@ interface AgentRunResponse {
   source: "ai" | "fallback";
   agentResult?: AgentResult;
   error?: string;
+  trace?: { runId: string; persisted: boolean; error?: string };
 }
 
 interface AIQueryInputProps {
@@ -26,10 +27,10 @@ interface AIQueryInputProps {
     source: "ai" | "fallback";
     originalQuery: string;
     agentSteps?: AgentStep[];
-    agentStatus?: "running" | "completed" | "failed";
-    agentError?: string;
-    agentResult?: AgentResult;
-  }) => void;
+    agentStatus?: "running" | "completed" | "failed";      agentError?: string;
+      agentResult?: AgentResult;
+      tracePersisted?: boolean;
+    }) => void;
 }
 
 export function AIQueryInput({
@@ -110,6 +111,7 @@ export function AIQueryInput({
                   : "running",
             agentError: agentResult.error,
             agentResult,
+            tracePersisted: agentResponse.trace?.persisted,
           });
           setQuery("");
         } else {
